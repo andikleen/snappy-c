@@ -1,4 +1,10 @@
-/* C port of the C++ snappy compressor from Google */
+/* 
+ * C port of the snappy compressor from Google.
+ * This is a very fast compressor with comparable compression to lzo. 
+ * Works best on 64bit little-endian, but should be good on others too.
+ * Ported by Andi Kleen.
+ */
+
 // Copyright 2005 Google Inc. All Rights Reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -27,7 +33,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
+#include "snappy.h"
+#include "snappy-int.h"
 
 struct Source {
 	const char *ptr;
@@ -62,21 +69,24 @@ static inline void append(struct Sink *s, const char *data, size_t n)
 	s->dest += n;
 }
 
-
 // Any hash function will produce a valid compressed bitstream, but a good
 // hash function reduces the number of collisions and thus yields better
 // compression for compressible input, and more speed for incompressible
 // input. Of course, it doesn't hurt if the hash function is reasonably fast
 // either, as it gets called a lot.
-static inline uint32 HashBytes(uint32 bytes, int shift) {
+static inline uint32 HashBytes(uint32 bytes, int shift) 
+{
   uint32 kMul = 0x1e35a7bd;
   return (bytes * kMul) >> shift;
 }
-static inline uint32 Hash(const char* p, int shift) {
+
+static inline uint32 Hash(const char* p, int shift) 
+{
   return HashBytes(UNALIGNED_LOAD32(p), shift);
 }
 
-size_t MaxCompressedLength(size_t source_len) {
+size_t MaxCompressedLength(size_t source_len) 
+{
   // Compressed data can be defined as:
   //    compressed := item* literal*
   //    item       := literal* copy
@@ -118,7 +128,8 @@ enum {
 //    ababababababababababab
 // Note that this does not match the semantics of either memcpy()
 // or memmove().
-static inline void IncrementalCopy(const char* src, char* op, int len) {
+static inline void IncrementalCopy(const char* src, char* op, int len) 
+{
   DCHECK_GT(len, 0);
   do {
     *op++ = *src++;
@@ -159,7 +170,8 @@ static inline void IncrementalCopy(const char* src, char* op, int len) {
 
 #define kMaxIncrementCopyOverflow  10
 
-static inline void IncrementalCopyFastPath(const char* src, char* op, int len) {
+static inline void IncrementalCopyFastPath(const char* src, char* op, int len) 
+{
   while (op - src < 8) {
     UNALIGNED_STORE64(op, UNALIGNED_LOAD64(src));
     len -= op - src;
@@ -177,7 +189,8 @@ static inline void IncrementalCopyFastPath(const char* src, char* op, int len) {
 static inline char* EmitLiteral(char* op,
                                 const char* literal,
                                 int len,
-                                bool allow_fast_path) {
+                                bool allow_fast_path) 
+{
   int n = len - 1;      // Zero-length literals are disallowed
   if (n < 60) {
     // Fits in tag byte
@@ -216,7 +229,8 @@ static inline char* EmitLiteral(char* op,
   return op + len;
 }
 
-static inline char* EmitCopyLessThan64(char* op, int offset, int len) {
+static inline char* EmitCopyLessThan64(char* op, int offset, int len) 
+{
   DCHECK_LE(len, 64);
   DCHECK_GE(len, 4);
   DCHECK_LT(offset, 65536);
@@ -234,7 +248,8 @@ static inline char* EmitCopyLessThan64(char* op, int offset, int len) {
   return op;
 }
 
-static inline char* EmitCopy(char* op, int offset, int len) {
+static inline char* EmitCopy(char* op, int offset, int len) 
+{
   // Emit 64 byte copies but make sure to keep at least four bytes reserved
   while (len >= 68) {
     op = EmitCopyLessThan64(op, offset, 64);
@@ -252,7 +267,8 @@ static inline char* EmitCopy(char* op, int offset, int len) {
   return op;
 }
 
-bool GetUncompressedLength(const char* start, size_t n, size_t* result) {
+bool GetUncompressedLength(const char* start, size_t n, size_t* result) 
+{
   uint32 v = 0;
   const char* limit = start + n;
   if (Varint::Parse32WithLimit(start, limit, &v) != NULL) {
@@ -268,7 +284,8 @@ struct WorkingMemory {
 	uint16* large_table_;          // Allocated only when needed
 };
 
-uint16* GetHashTable(struct WorkingMemory *wm, size_t input_size, int* table_size) {
+uint16* GetHashTable(struct WorkingMemory *wm, size_t input_size, int* table_size) 
+{
   // Use smaller hash table when input.size() is smaller, since we
   // fill the table, incurring O(hash table size) overhead for
   // compression, and if the input is short, we won't need that
@@ -282,7 +299,7 @@ uint16* GetHashTable(struct WorkingMemory *wm, size_t input_size, int* table_siz
   CHECK_LE(htsize, kMaxHashTableSize) << ": hash table too large";
 
   uint16* table;
-  if (htsize <= ARRAYSIZE(wm->small_table_)) {
+  if (htsize <= ARRAY_SIZE(wm->small_table_)) {
     table = wm->small_table_;
   } else {
     if (wm->large_table_ == NULL) {
@@ -302,7 +319,8 @@ uint16* GetHashTable(struct WorkingMemory *wm, size_t input_size, int* table_siz
 // empirically found that overlapping loads such as
 //  UNALIGNED_LOAD32(p) ... UNALIGNED_LOAD32(p+1) ... UNALIGNED_LOAD32(p+2)
 // are slower than UNALIGNED_LOAD64(p) followed by shifts and casts to uint32.
-static inline uint32 GetUint32AtOffset(uint64 v, int offset) {
+static inline uint32 GetUint32AtOffset(uint64 v, int offset) 
+{
   DCHECK(0 <= offset && offset <= 4) << offset;
   return v >> (HAVE_LITTLE_ENDIAN ? 8 * offset : 32 - 8 * offset);
 }
@@ -324,7 +342,8 @@ static char* CompressFragment(const char* const input,
                        const size_t input_size,
                        char* op,
                        uint16* table,
-                       const int table_size) {
+                       const int table_size) 
+{
   // "ip" is the input pointer, and "op" is the output pointer.
   const char* ip = input;
   CHECK_LE(input_size, kBlockSize);
@@ -446,28 +465,6 @@ static char* CompressFragment(const char* const input,
   return op;
 }
 
-
-// Signature of output types needed by decompression code.
-// The decompression code is templatized on a type that obeys this
-// signature so that we do not pay virtual function call overhead in
-// the middle of a tight decompression loop.
-//
-// class DecompressionWriter {
-//  public:
-//   // Called before decompression
-//   void SetExpectedLength(size_t length);
-//
-//   // Called after decompression
-//   bool CheckLength() const;
-//
-//   // Called repeatedly during decompression
-//   bool Append(const char* ip, uint32 length, bool allow_fast_path);
-//   bool AppendFromSelf(uint32 offset, uint32 length);
-// };
-//
-// "allow_fast_path" is a parameter that says if there is at least 16
-// readable bytes in "ip". It is currently only used by SnappyArrayWriter.
-
 // -----------------------------------------------------------------------
 // Lookup table for decompression code.  Generated by ComputeTable() below.
 // -----------------------------------------------------------------------
@@ -531,7 +528,8 @@ DEFINE_bool(snappy_dump_decompression_table, false,
 
 static uint16 MakeEntry(unsigned int extra,
                         unsigned int len,
-                        unsigned int copy_offset) {
+                        unsigned int copy_offset) 
+{
   // Check that all of the fields fit within the allocated space
   DCHECK_EQ(extra,       extra & 0x7);          // At most 3 bits
   DCHECK_EQ(copy_offset, copy_offset & 0x7);    // At most 3 bits
@@ -539,7 +537,8 @@ static uint16 MakeEntry(unsigned int extra,
   return len | (copy_offset << 8) | (extra << 11);
 }
 
-static void ComputeTable() {
+static void ComputeTable() 
+{
   uint16 dst[256];
 
   // Place invalid entries in all places to detect missing initialization
@@ -642,7 +641,8 @@ void exit_snappy_decompressor(struct SnappyDecompressor *d)
 // Read the uncompressed length stored at the start of the compressed data.
 // On succcess, stores the length in *result and returns true.
 // On failure, returns false.
-bool ReadUncompressedLength(struct SnappyDecompressor *d, uint32* result) {
+bool ReadUncompressedLength(struct SnappyDecompressor *d, uint32* result) 
+{
     DCHECK(d->ip_ == NULL);       // Must not have read anything yet
     // Length is encoded in 1..5 bytes
     *result = 0;
@@ -666,12 +666,13 @@ bool ReadUncompressedLength(struct SnappyDecompressor *d, uint32* result) {
 
 // Process the next item found in the input.
 // Returns true if successful, false on error or end of input.
-void DecompressAllTags(struct SnappyDecompressor *d, Writer* writer) {
+void DecompressAllTags(struct SnappyDecompressor *d, Writer* writer) 
+{
     const char* ip = d->ip_;
     for ( ;; ) {
       if (d->ip_limit_ - ip < 5) {
         d->ip_ = ip;
-        if (!RefillTag()) return;
+        if (!RefillTag(d)) return;
         ip = d->ip_;
       }
 
@@ -686,18 +687,18 @@ void DecompressAllTags(struct SnappyDecompressor *d, Writer* writer) {
         uint32 avail = ip_limit_ - ip;
         while (avail < literal_length) {
           bool allow_fast_path = (avail >= 16);
-          if (!writer->Append(ip, avail, allow_fast_path)) return;
+          if (!WriterAppend(writer, ip, avail, allow_fast_path)) return;
           literal_length -= avail;
-          d->reader_->Skip(d->peeked_);
+	  skip(d->reader_, d->reader_, d->peeked_);
           size_t n;
-          ip = d->reader_->Peek(&n);
+          ip = peek(d->reader_, &n);
           avail = n;
           d->peeked_ = avail;
           if (avail == 0) return;  // Premature end of input
           d->ip_limit_ = ip + avail;
         }
         bool allow_fast_path = (avail >= 16);
-        if (!writer->Append(ip, literal_length, allow_fast_path)) {
+        if (!WriterAppend(writer, ip, literal_length, allow_fast_path)) {
           return;
         }
         ip += literal_length;
@@ -706,9 +707,279 @@ void DecompressAllTags(struct SnappyDecompressor *d, Writer* writer) {
         // those bits, we get copy_offset (since the bit-field starts at
         // bit 8).
         const uint32 copy_offset = entry & 0x700;
-        if (!writer->AppendFromSelf(copy_offset + trailer, length)) {
+        if (!WriterAppendFromSelf(writer, copy_offset + trailer, length)) {
           return;
         }
       }
     }
 }
+
+static bool RefillTag(struct SnappyDecompressor *d) 
+{
+  const char* ip = d->ip_;
+  if (ip == d->ip_limit_) {
+    // Fetch a new fragment from the reader
+    skip(reader, d->peeked_);   // All peeked bytes are used up
+    size_t n;
+    ip = peek(reader, &n);
+    d->peeked_ = n;
+    if (n == 0) {
+      d->eof_ = true;
+      return false;
+    }
+    d->ip_limit_ = ip + n;
+  }
+
+  // Read the tag character
+  DCHECK_LT(ip, ip_limit_);
+  const unsigned char c = *(const unsigned char*)(ip);
+  const uint32 entry = char_table[c];
+  const uint32 needed = (entry >> 11) + 1;  // +1 byte for 'c'
+  DCHECK_LE(needed, sizeof(scratch_));
+
+  // Read more bytes from reader if needed
+  uint32 nbuf = ip_limit_ - ip;
+  if (nbuf < needed) {
+    // Stitch together bytes from ip and reader to form the word
+    // contents.  We store the needed bytes in "scratch_".  They
+    // will be consumed immediately by the caller since we do not
+    // read more than we need.
+    memmove(scratch_, ip, nbuf);
+    skip(d->reader_, d->peeked_);  // All peeked bytes are used up
+    d->peeked_ = 0;
+    while (nbuf < needed) {
+      size_t length;
+      const char* src = peek(d->reader_, &length);
+      if (length == 0) return false;
+      uint32 to_add = min_t(uint32_t, needed - nbuf, length);
+      memcpy(scratch_ + nbuf, src, to_add);
+      nbuf += to_add;
+      skip(d->reader_, to_add);
+    }
+    DCHECK_EQ(nbuf, needed);
+    ip_ = scratch_;
+    d->ip_limit_ = d->scratch_ + needed;
+  } else if (nbuf < 5) {
+    // Have enough bytes, but move into scratch_ so that we do not
+    // read past end of input
+    memmove(scratch_, ip, nbuf);
+    skip(d->reader_, d->peeked_);  // All peeked bytes are used up
+    d->peeked_ = 0;
+    d->ip_ = scratch_;
+    d->ip_limit_ = d->scratch_ + nbuf;
+  } else {
+    // Pass pointer to buffer returned by reader_.
+    d->ip_ = ip;
+  }
+  return true;
+}
+
+static bool InternalUncompress(Source* r,
+                               Writer* writer,
+                               uint32 max_len) 
+{
+  // Read the uncompressed length from the front of the compressed input
+  struct SnappyDecompressor decompressor;
+  uint32 uncompressed_len = 0;
+
+  init_snappy_decompressor(&decompressor, r);
+
+  if (!ReadUncompressedLength(&decompressor, &uncompressed_len)) return false;
+  // Protect against possible DoS attack
+  if ((uint64)(uncompressed_len) > max_len) {
+    return false;
+  }
+
+
+  WriterSetExpectedLength(writer, uncompressed_len);
+
+  // Process the entire input
+  DecompressAllTags(&decompressor, writer);
+  return (decompressor.eof_ && writer->CheckLength());
+}
+
+bool GetUncompressedLength(Source* source, uint32* result) 
+{
+  struct SnappyDecompressor decompressor;
+  init_snappy_decompressor(&decompressor, source);
+  return ReadUncompressedLength(&decompressor, result);
+}
+
+size_t Compress(Source* reader, Sink* writer) 
+{
+  size_t written = 0;
+  int N = Available(&reader);
+  char ulength[kMax32];
+  char* p = Varint::Encode32(ulength, N);
+  writer->Append(ulength, p-ulength);
+  written += (p - ulength);
+
+  internal::WorkingMemory wmem;
+  char* scratch = NULL;
+  char* scratch_output = NULL;
+
+  while (N > 0) {
+    // Get next block to compress (without copying if possible)
+    size_t fragment_size;
+    const char* fragment = reader->Peek(&fragment_size);
+    DCHECK_NE(fragment_size, 0) << ": premature end of input";
+    const int num_to_read = min(N, kBlockSize);
+    size_t bytes_read = fragment_size;
+
+    int pending_advance = 0;
+    if (bytes_read >= num_to_read) {
+      // Buffer returned by reader is large enough
+      pending_advance = num_to_read;
+      fragment_size = num_to_read;
+    } else {
+      // Read into scratch buffer
+      if (scratch == NULL) {
+        // If this is the last iteration, we want to allocate N bytes
+        // of space, otherwise the max possible kBlockSize space.
+        // num_to_read contains exactly the correct value
+        scratch = new char[num_to_read];
+      }
+      memcpy(scratch, fragment, bytes_read);
+      reader->Skip(bytes_read);
+
+      while (bytes_read < num_to_read) {
+        fragment = reader->Peek(&fragment_size);
+        size_t n = min<size_t>(fragment_size, num_to_read - bytes_read);
+        memcpy(scratch + bytes_read, fragment, n);
+        bytes_read += n;
+        reader->Skip(n);
+      }
+      DCHECK_EQ(bytes_read, num_to_read);
+      fragment = scratch;
+      fragment_size = num_to_read;
+    }
+    DCHECK_EQ(fragment_size, num_to_read);
+
+    // Get encoding table for compression
+    int table_size;
+    uint16* table = wmem.GetHashTable(num_to_read, &table_size);
+
+    // Compress input_fragment and append to dest
+    const int max_output = MaxCompressedLength(num_to_read);
+
+    // Need a scratch buffer for the output, in case the byte sink doesn't
+    // have room for us directly.
+    if (scratch_output == NULL) {
+      scratch_output = new char[max_output];
+    } else {
+      // Since we encode kBlockSize regions followed by a region
+      // which is <= kBlockSize in length, a previously allocated
+      // scratch_output[] region is big enough for this iteration.
+    }
+    char* dest = writer->GetAppendBuffer(max_output, scratch_output);
+    char* end = internal::CompressFragment(fragment, fragment_size,
+                                           dest, table, table_size);
+    writer->Append(dest, end - dest);
+    written += (end - dest);
+
+    N -= num_to_read;
+    reader->Skip(pending_advance);
+  }
+
+  delete[] scratch;
+  delete[] scratch_output;
+
+  return written;
+}
+
+inline bool WriterAppend(struct Writer *w, const char* ip, uint32 len, 
+			 bool allow_fast_path) 
+{
+    char* op = w->op_;
+    const int space_left = w->op_limit_ - op;
+    if (allow_fast_path && len <= 16 && space_left >= 16) {
+      // Fast path, used for the majority (about 90%) of dynamic invocations.
+      UNALIGNED_STORE64(op, UNALIGNED_LOAD64(ip));
+      UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(ip + 8));
+    } else {
+      if (space_left < len) {
+        return false;
+      }
+      memcpy(op, ip, len);
+    }
+    w->op_ = op + len;
+    return true;
+}
+
+
+struct Writer {
+	char* base_;
+	char* op_;
+	char* op_limit_;
+};
+
+static inline void init_writer(struct Writer *w, char *dst)
+{
+	w->base_ = dst;
+	w->op_ = dst;
+}
+
+// Called before decompression
+static inline void WriterSetExpectedLength(struct Writer *w, size_t len) 
+{
+    w->op_limit_ = w->op_ + len;
+}
+
+// Called after decompression
+static inline bool WriterCheckLength(struct Writer *w) 
+{
+    return w->op_ == w->op_limit_;
+}
+
+inline bool WriterAppendFromSelf(struct Writer *w, uint32 offset, uint32 len) 
+{
+    char* op = w->op_;
+    const int space_left = w->op_limit_ - op;
+
+    if (op - base_ <= offset - 1u) {  // -1u catches offset==0
+      return false;
+    }
+    if (len <= 16 && offset >= 8 && space_left >= 16) {
+      // Fast path, used for the majority (70-80%) of dynamic invocations.
+      UNALIGNED_STORE64(op, UNALIGNED_LOAD64(op - offset));
+      UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(op - offset + 8));
+    } else {
+      if (space_left >= len + kMaxIncrementCopyOverflow) {
+        IncrementalCopyFastPath(op - offset, op, len);
+      } else {
+        if (space_left < len) {
+          return false;
+        }
+        IncrementalCopy(op - offset, op, len);
+      }
+    }
+
+    w->op_ = op + len;
+    return true;
+}
+
+
+bool snappy_uncompress(const char* compressed, size_t n, char* uncompressed) 
+{
+  struct Source reader;
+  struct Writer output;
+
+  reader.ptr = compressed;
+  reader.left = n;
+  init_writer(&output, uncompressed);
+  return InternalUncompress(&reader, &output, 0xffffffff);
+}
+
+void snappy_compress(const char* input,
+		     size_t input_length,
+		     char* compressed,
+		     size_t* compressed_length) 
+{
+  ByteArraySource reader(input, input_length);
+  UncheckedByteArraySink writer(compressed);
+  Compress(&reader, &writer);
+
+  // Compute how many bytes were added
+  *compressed_length = (writer.CurrentDestination() - compressed);
+}
+
