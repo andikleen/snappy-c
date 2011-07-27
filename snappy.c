@@ -33,6 +33,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <string.h>
 #include "snappy.h"
 #include "snappy-int.h"
 
@@ -375,7 +376,9 @@ uint16* GetHashTable(struct WorkingMemory *wm, size_t input_size, int* table_siz
     table = wm->small_table_;
   } else {
     if (wm->large_table_ == NULL) {
-      wm->large_table_ = new uint16[kMaxHashTableSize];
+      wm->large_table_ = malloc(sizeof(uint16) * kMaxHashTableSize);
+      if (!wm->large_table_)
+        return NULL;
     }
     table = wm->large_table_;
   }
@@ -764,7 +767,7 @@ REGISTER_MODULE_INITIALIZER(snappy, ComputeTable());
 #endif /* !NDEBUG */
 
 struct SnappyDecompressor {
-  Source*       reader_;         // Underlying source of bytes to decompress
+  struct Source* reader_;         // Underlying source of bytes to decompress
   const char*   ip_;             // Points to next buffered byte
   const char*   ip_limit_;       // Points just past buffered bytes
   uint32        peeked_;         // Bytes peeked from reader (need to skip)
@@ -783,7 +786,7 @@ void init_snappy_decompressor(struct SnappyDecompressor *d, Reader *reader)
 
 void exit_snappy_decompressor(struct SnappyDecompressor *d)
 {
-	d->reader_->Skip(peeked_);
+	skip(&d->reader_, d->peeked_);
 }
 
 // Read the uncompressed length stored at the start of the compressed data.
@@ -943,6 +946,8 @@ static bool InternalUncompress(Source* r,
 
   // Process the entire input
   DecompressAllTags(&decompressor, writer);
+
+  exit_snappy_decompressor(&decompressor);
   return (decompressor.eof_ && writer->CheckLength());
 }
 
@@ -953,18 +958,19 @@ bool GetUncompressedLength(Source* source, uint32* result)
   return ReadUncompressedLength(&decompressor, result);
 }
 
-size_t Compress(struct Source* reader, struct Sink* writer) 
+int Compress(struct Source* reader, struct Sink* writer) 
 {
+  int err;
   size_t written = 0;
   int N = Available(&reader);
   char ulength[kMax32];
   char* p = Varint::Encode32(ulength, N);
-  writer->Append(ulength, p-ulength);
+
+  append(&writer, ulength, p-ulength);
   written += (p - ulength);
 
   struct WorkingMemory wmem;
   wmem.large_table_ = NULL;
-
   char* scratch = NULL;
   char* scratch_output = NULL;
 
@@ -1007,7 +1013,11 @@ size_t Compress(struct Source* reader, struct Sink* writer)
 
     // Get encoding table for compression
     int table_size;
-    uint16* table = wmem.GetHashTable(num_to_read, &table_size);
+    uint16* table = GetHashTable(&wmem, num_to_read, &table_size);
+    if (!table) {
+      err = -ENOMEM;
+      goto out;
+    }
 
     // Compress input_fragment and append to dest
     const int max_output = MaxCompressedLength(num_to_read);
@@ -1015,30 +1025,37 @@ size_t Compress(struct Source* reader, struct Sink* writer)
     // Need a scratch buffer for the output, in case the byte sink doesn't
     // have room for us directly.
     if (scratch_output == NULL) {
-      scratch_output = new char[max_output];
+      scratch_output = malloc(max_output);
+      if (!scratch_output) {
+        err = -ENOMEM; 
+        goto out;
+      }
+         
     } else {
       // Since we encode kBlockSize regions followed by a region
       // which is <= kBlockSize in length, a previously allocated
       // scratch_output[] region is big enough for this iteration.
     }
-    char* dest = writer->GetAppendBuffer(max_output, scratch_output);
-    char* end = internal::CompressFragment(fragment, fragment_size,
-                                           dest, table, table_size);
-    writer->Append(dest, end - dest);
+    char* dest = scratch_output;
+    char* end = CompressFragment(fragment, fragment_size,
+				 dest, table, table_size);
+    append(&writer, dest, end - dest);
     written += (end - dest);
 
     N -= num_to_read;
-    reader->Skip(pending_advance);
+    skip(&reader, pending_advance);
   }
 
+  err = 0;
+out:
   free(wmem.large_table_);
   free(scratch);
   free(scratch_output);
 
-  return written;
+  return err;
 }
 
-void snappy_compress(const char* input,
+int snappy_compress(const char* input,
 		     size_t input_length,
 		     char* compressed,
 		     size_t* compressed_length) 
@@ -1050,10 +1067,12 @@ void snappy_compress(const char* input,
   struct Sink writer = {
     .dest = compressed,
   };
-  Compress(&reader, &writer);
+  if (!Compress(&reader, &writer))
+     return -ENOMEM;
 
   // Compute how many bytes were added
   *compressed_length = (writer.dest - compressed);
+  return 0;
 }
 
 bool snappy_uncompress(const char* compressed, size_t n, char* uncompressed) 
