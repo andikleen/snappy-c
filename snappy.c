@@ -69,6 +69,78 @@ static inline void append(struct Sink *s, const char *data, size_t n)
 	s->dest += n;
 }
 
+struct Writer {
+	char* base_;
+	char* op_;
+	char* op_limit_;
+};
+
+// Called before decompression
+static inline void WriterSetExpectedLength(struct Writer *w, size_t len) 
+{
+    w->op_limit_ = w->op_ + len;
+}
+
+// Called after decompression
+static inline bool WriterCheckLength(struct Writer *w) 
+{
+    return w->op_ == w->op_limit_;
+}
+
+inline bool WriterAppendFromSelf(struct Writer *w, uint32 offset, uint32 len) 
+{
+    char* op = w->op_;
+    const int space_left = w->op_limit_ - op;
+
+    if (op - w->base_ <= offset - 1u) {  // -1u catches offset==0
+      return false;
+    }
+    if (len <= 16 && offset >= 8 && space_left >= 16) {
+      // Fast path, used for the majority (70-80%) of dynamic invocations.
+      UNALIGNED_STORE64(op, UNALIGNED_LOAD64(op - offset));
+      UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(op - offset + 8));
+    } else {
+      if (space_left >= len + kMaxIncrementCopyOverflow) {
+        IncrementalCopyFastPath(op - offset, op, len);
+      } else {
+        if (space_left < len) {
+          return false;
+        }
+        IncrementalCopy(op - offset, op, len);
+      }
+    }
+
+    w->op_ = op + len;
+    return true;
+}
+
+
+inline bool WriterAppend(struct Writer *w, const char* ip, uint32 len, 
+			 bool allow_fast_path) 
+{
+    char* op = w->op_;
+    const int space_left = w->op_limit_ - op;
+    if (allow_fast_path && len <= 16 && space_left >= 16) {
+      // Fast path, used for the majority (about 90%) of dynamic invocations.
+      UNALIGNED_STORE64(op, UNALIGNED_LOAD64(ip));
+      UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(ip + 8));
+    } else {
+      if (space_left < len) {
+        return false;
+      }
+      memcpy(op, ip, len);
+    }
+    w->op_ = op + len;
+    return true;
+}
+
+struct WorkingMemory {
+	uint16 small_table_[1<<10];    // 2KB
+	uint16* large_table_;          // Allocated only when needed
+};
+
+
+
 // Any hash function will produce a valid compressed bitstream, but a good
 // hash function reduces the number of collisions and thus yields better
 // compression for compressible input, and more speed for incompressible
@@ -312,6 +384,82 @@ uint16* GetHashTable(struct WorkingMemory *wm, size_t input_size, int* table_siz
   memset(table, 0, htsize * sizeof(*table));
   return table;
 }
+
+
+
+// Return the largest n such that
+//
+//   s1[0,n-1] == s2[0,n-1]
+//   and n <= (s2_limit - s2).
+//
+// Does not read *s2_limit or beyond.
+// Does not read *(s1 + (s2_limit - s2)) or beyond.
+// Requires that s2_limit >= s2.
+//
+// Separate implementation for x86_64, for speed.  Uses the fact that
+// x86_64 is little endian.
+#if defined(__x86_64__)
+static inline int FindMatchLength(const char* s1,
+                                  const char* s2,
+                                  const char* s2_limit) {
+  DCHECK_GE(s2_limit, s2);
+  int matched = 0;
+
+  // Find out how long the match is. We loop over the data 64 bits at a
+  // time until we find a 64-bit block that doesn't match; then we find
+  // the first non-matching bit and use that to calculate the total
+  // length of the match.
+  while (PREDICT_TRUE(s2 <= s2_limit - 8)) {
+    if (PREDICT_FALSE(UNALIGNED_LOAD64(s2) == UNALIGNED_LOAD64(s1 + matched))) {
+      s2 += 8;
+      matched += 8;
+    } else {
+      // On current (mid-2008) Opteron models there is a 3% more
+      // efficient code sequence to find the first non-matching byte.
+      // However, what follows is ~10% better on Intel Core 2 and newer,
+      // and we expect AMD's bsf instruction to improve.
+      uint64 x = UNALIGNED_LOAD64(s2) ^ UNALIGNED_LOAD64(s1 + matched);
+      int matching_bits = Bits::FindLSBSetNonZero64(x);
+      matched += matching_bits >> 3;
+      return matched;
+    }
+  }
+  while (PREDICT_TRUE(s2 < s2_limit)) {
+    if (PREDICT_TRUE(s1[matched] == *s2)) {
+      ++s2;
+      ++matched;
+    } else {
+      return matched;
+    }
+  }
+  return matched;
+}
+#else
+static inline int FindMatchLength(const char* s1,
+                                  const char* s2,
+                                  const char* s2_limit) {
+  // Implementation based on the x86-64 version, above.
+  DCHECK_GE(s2_limit, s2);
+  int matched = 0;
+
+  while (s2 <= s2_limit - 4 &&
+         UNALIGNED_LOAD32(s2) == UNALIGNED_LOAD32(s1 + matched)) {
+    s2 += 4;
+    matched += 4;
+  }
+  if (LittleEndian::IsLittleEndian() && s2 <= s2_limit - 4) {
+    uint32 x = UNALIGNED_LOAD32(s2) ^ UNALIGNED_LOAD32(s1 + matched);
+    int matching_bits = Bits::FindLSBSetNonZero(x);
+    matched += matching_bits >> 3;
+  } else {
+    while ((s2 < s2_limit) && (s1[matched] == *s2)) {
+      ++s2;
+      ++matched;
+    }
+  }
+  return matched;
+}
+#endif
 
 
 // For 0 <= offset <= 4, GetUint32AtOffset(UNALIGNED_LOAD64(p), offset) will
@@ -805,7 +953,7 @@ bool GetUncompressedLength(Source* source, uint32* result)
   return ReadUncompressedLength(&decompressor, result);
 }
 
-size_t Compress(Source* reader, Sink* writer) 
+size_t Compress(struct Source* reader, struct Sink* writer) 
 {
   size_t written = 0;
   int N = Available(&reader);
@@ -814,7 +962,9 @@ size_t Compress(Source* reader, Sink* writer)
   writer->Append(ulength, p-ulength);
   written += (p - ulength);
 
-  internal::WorkingMemory wmem;
+  struct WorkingMemory wmem;
+  wmem.large_table_ = NULL;
+
   char* scratch = NULL;
   char* scratch_output = NULL;
 
@@ -881,93 +1031,11 @@ size_t Compress(Source* reader, Sink* writer)
     reader->Skip(pending_advance);
   }
 
-  delete[] scratch;
-  delete[] scratch_output;
+  free(wmem.large_table_);
+  free(scratch);
+  free(scratch_output);
 
   return written;
-}
-
-inline bool WriterAppend(struct Writer *w, const char* ip, uint32 len, 
-			 bool allow_fast_path) 
-{
-    char* op = w->op_;
-    const int space_left = w->op_limit_ - op;
-    if (allow_fast_path && len <= 16 && space_left >= 16) {
-      // Fast path, used for the majority (about 90%) of dynamic invocations.
-      UNALIGNED_STORE64(op, UNALIGNED_LOAD64(ip));
-      UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(ip + 8));
-    } else {
-      if (space_left < len) {
-        return false;
-      }
-      memcpy(op, ip, len);
-    }
-    w->op_ = op + len;
-    return true;
-}
-
-
-struct Writer {
-	char* base_;
-	char* op_;
-	char* op_limit_;
-};
-
-static inline void init_writer(struct Writer *w, char *dst)
-{
-	w->base_ = dst;
-	w->op_ = dst;
-}
-
-// Called before decompression
-static inline void WriterSetExpectedLength(struct Writer *w, size_t len) 
-{
-    w->op_limit_ = w->op_ + len;
-}
-
-// Called after decompression
-static inline bool WriterCheckLength(struct Writer *w) 
-{
-    return w->op_ == w->op_limit_;
-}
-
-inline bool WriterAppendFromSelf(struct Writer *w, uint32 offset, uint32 len) 
-{
-    char* op = w->op_;
-    const int space_left = w->op_limit_ - op;
-
-    if (op - base_ <= offset - 1u) {  // -1u catches offset==0
-      return false;
-    }
-    if (len <= 16 && offset >= 8 && space_left >= 16) {
-      // Fast path, used for the majority (70-80%) of dynamic invocations.
-      UNALIGNED_STORE64(op, UNALIGNED_LOAD64(op - offset));
-      UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(op - offset + 8));
-    } else {
-      if (space_left >= len + kMaxIncrementCopyOverflow) {
-        IncrementalCopyFastPath(op - offset, op, len);
-      } else {
-        if (space_left < len) {
-          return false;
-        }
-        IncrementalCopy(op - offset, op, len);
-      }
-    }
-
-    w->op_ = op + len;
-    return true;
-}
-
-
-bool snappy_uncompress(const char* compressed, size_t n, char* uncompressed) 
-{
-  struct Source reader;
-  struct Writer output;
-
-  reader.ptr = compressed;
-  reader.left = n;
-  init_writer(&output, uncompressed);
-  return InternalUncompress(&reader, &output, 0xffffffff);
 }
 
 void snappy_compress(const char* input,
@@ -975,11 +1043,28 @@ void snappy_compress(const char* input,
 		     char* compressed,
 		     size_t* compressed_length) 
 {
-  ByteArraySource reader(input, input_length);
-  UncheckedByteArraySink writer(compressed);
+  struct Source reader = {
+    .ptr = input,
+    .left = input_length
+  };
+  struct Sink writer = {
+    .dest = compressed,
+  };
   Compress(&reader, &writer);
 
   // Compute how many bytes were added
-  *compressed_length = (writer.CurrentDestination() - compressed);
+  *compressed_length = (writer.dest - compressed);
 }
 
+bool snappy_uncompress(const char* compressed, size_t n, char* uncompressed) 
+{
+  struct Source reader = {
+    .ptr = compressed,
+    .left = n
+  };
+  struct Writer output = {
+    .base_ = uncompressed,
+    .op_ = uncompressed
+  };
+  return InternalUncompress(&reader, &output, 0xffffffff);
+}
