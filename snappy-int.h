@@ -28,93 +28,47 @@
 //
 // Various stubs for the open-source version of Snappy.
 
-
-static inline int Log2Floor(uint32 n) 
-{
-  return n == 0 ? -1 : 31 ^ __builtin_clz(n);
-} 
-
-static inline int FindLSBSetNonZero(uint32 n) 
-{
-  return __builtin_ctz(n);
-}
-
-static inline int Bits::FindLSBSetNonZero64(uint64 n) 
-{
-  return __builtin_ctzll(n);
-}
-
-#define kMax32 5
-
-// Attempts to parse a varint32 from a prefix of the bytes in [ptr,limit-1].
-// Never reads a character at or beyond limit.  If a valid/terminated varint32
-// was found in the range, stores it in *OUTPUT and returns a pointer just
-// past the last byte of the varint32. Else returns NULL.  On success,
-// "result <= limit".
-static inline const char* Varint::Parse32WithLimit(const char* p,
-                                            const char* l,
-                                            uint32* OUTPUT) 
-{
-  const unsigned char* ptr = (const unsigned char*)(p);
-  const unsigned char* limit = (const unsigned char*)(l);
-  uint32 b, result;
-  if (ptr >= limit) return NULL;
-  b = *(ptr++); result = b & 127;          if (b < 128) goto done;
-  if (ptr >= limit) return NULL;
-  b = *(ptr++); result |= (b & 127) <<  7; if (b < 128) goto done;
-  if (ptr >= limit) return NULL;
-  b = *(ptr++); result |= (b & 127) << 14; if (b < 128) goto done;
-  if (ptr >= limit) return NULL;
-  b = *(ptr++); result |= (b & 127) << 21; if (b < 128) goto done;
-  if (ptr >= limit) return NULL;
-  b = *(ptr++); result |= (b & 127) << 28; if (b < 16) goto done;
-  return NULL;       // Value is too long to be a varint32
- done:
-  *OUTPUT = result;
-  return (const char*)(ptr);
-}
-
-// REQUIRES   "ptr" points to a buffer of length sufficient to hold "v".
-// EFFECTS    Encodes "v" into "ptr" and returns a pointer to the
-//            byte just past the last encoded byte.
-static inline char* Varint::Encode32(char* sptr, uint32 v) 
-{
-  // Operate on characters as unsigneds
-  unsigned char* ptr = (unsigned char*)(sptr);
-  static const int B = 128;
-  if (v < (1<<7)) {
-    *(ptr++) = v;
-  } else if (v < (1<<14)) {
-    *(ptr++) = v | B;
-    *(ptr++) = v>>7;
-  } else if (v < (1<<21)) {
-    *(ptr++) = v | B;
-    *(ptr++) = (v>>7) | B;
-    *(ptr++) = v>>14;
-  } else if (v < (1<<28)) {
-    *(ptr++) = v | B;
-    *(ptr++) = (v>>7) | B;
-    *(ptr++) = (v>>14) | B;
-    *(ptr++) = v>>21;
-  } else {
-    *(ptr++) = v | B;
-    *(ptr++) = (v>>7) | B;
-    *(ptr++) = (v>>14) | B;
-    *(ptr++) = (v>>21) | B;
-    *(ptr++) = v>>28;
-  }
-  return (char*)(ptr);
-}
-
-
-#define UNALIGNED_LOAD16(_p) (*reinterpret_cast<const uint16 *>(_p))
-#define UNALIGNED_LOAD32(_p) (*reinterpret_cast<const uint32 *>(_p))
-#define UNALIGNED_LOAD64(_p) (*reinterpret_cast<const uint64 *>(_p))
-
-#define UNALIGNED_STORE16(_p, _val) (*reinterpret_cast<uint16 *>(_p) = (_val))
-#define UNALIGNED_STORE32(_p, _val) (*reinterpret_cast<uint32 *>(_p) = (_val))
-#define UNALIGNED_STORE64(_p, _val) (*reinterpret_cast<uint64 *>(_p) = (_val))
-
+#define likely(x) __builtin_expect(x, 1)
+#define unlikely(x) __builtin_expect(x, 0)
 
 #define PREDICT_FALSE(x) unlikely(x)
 #define PREDICT_TRUE(x) likely(x)
+
+#define CRASH_UNLESS(x) assert(x)
+#define CHECK(cond) assert(cond)
+#define CHECK_LE(a, b) CRASH_UNLESS((a) <= (b))
+#define CHECK_GE(a, b) CRASH_UNLESS((a) >= (b))
+#define CHECK_EQ(a, b) CRASH_UNLESS((a) == (b))
+#define CHECK_NE(a, b) CRASH_UNLESS((a) != (b))
+#define CHECK_LT(a, b) CRASH_UNLESS((a) < (b))
+#define CHECK_GT(a, b) CRASH_UNLESS((a) > (b))
+
+#define UNALIGNED_LOAD16(_p) (*(const uint16 *)(_p))
+#define UNALIGNED_LOAD32(_p) (*(const uint32 *)(_p))
+#define UNALIGNED_LOAD64(_p) (*(const uint64 *)(_p))
+
+#define UNALIGNED_STORE16(_p, _val) (*(uint16 *)(_p) = (_val))
+#define UNALIGNED_STORE32(_p, _val) (*(uint32 *)(_p) = (_val))
+#define UNALIGNED_STORE64(_p, _val) (*(uint64 *)(_p) = (_val))
+
+#ifdef NDEBUG
+
+#define DCHECK(cond) CRASH_UNLESS(true)
+#define DCHECK_LE(a, b) CRASH_UNLESS(true)
+#define DCHECK_GE(a, b) CRASH_UNLESS(true)
+#define DCHECK_EQ(a, b) CRASH_UNLESS(true)
+#define DCHECK_NE(a, b) CRASH_UNLESS(true)
+#define DCHECK_LT(a, b) CRASH_UNLESS(true)
+#define DCHECK_GT(a, b) CRASH_UNLESS(true)
+
+#else
+
+#define DCHECK(cond) CHECK(cond)
+#define DCHECK_LE(a, b) CHECK_LE(a, b)
+#define DCHECK_GE(a, b) CHECK_GE(a, b)
+#define DCHECK_EQ(a, b) CHECK_EQ(a, b)
+#define DCHECK_NE(a, b) CHECK_NE(a, b)
+#define DCHECK_LT(a, b) CHECK_LT(a, b)
+#define DCHECK_GT(a, b) CHECK_GT(a, b)
+
+#endif
