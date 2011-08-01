@@ -1,4 +1,4 @@
-CFLAGS := -Wall
+CFLAGS := -Wall -g -O2 -DNDEBUG=1
 
 all: scmd
 

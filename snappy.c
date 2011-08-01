@@ -937,7 +937,7 @@ static bool RefillTag(struct SnappyDecompressor *d)
   return true;
 }
 
-static bool InternalUncompress(struct Source* r,
+static int InternalUncompress(struct Source* r,
                                struct Writer* writer,
                                uint32 max_len) 
 {
@@ -950,7 +950,7 @@ static bool InternalUncompress(struct Source* r,
   if (!ReadUncompressedLength(&decompressor, &uncompressed_len)) return false;
   // Protect against possible DoS attack
   if ((uint64)(uncompressed_len) > max_len) {
-    return false;
+    return -EIO;
   }
 
 
@@ -960,10 +960,10 @@ static bool InternalUncompress(struct Source* r,
   DecompressAllTags(&decompressor, writer);
 
   exit_snappy_decompressor(&decompressor);
-  return (decompressor.eof_ && WriterCheckLength(writer));
+  return (decompressor.eof_ && WriterCheckLength(writer)) ? 0 : -EIO;
 }
 
-static int Compress(struct Source* reader, struct Sink* writer)
+static inline int Compress(struct Source* reader, struct Sink* writer)
 {
   int err;
   size_t written = 0;
@@ -1079,12 +1079,11 @@ int snappy_compress(const char* input,
   struct Sink writer = {
     .dest = compressed,
   };
-  if (!Compress(&reader, &writer))
-     return -ENOMEM;
+  int err = Compress(&reader, &writer);
 
   // Compute how many bytes were added
   *compressed_length = (writer.dest - compressed);
-  return 0;
+  return err;
 }
 
 bool snappy_uncompress(const char* compressed, size_t n, char* uncompressed) 
