@@ -31,9 +31,6 @@
 #define likely(x) __builtin_expect(x, 1)
 #define unlikely(x) __builtin_expect(x, 0)
 
-#define PREDICT_FALSE(x) unlikely(x)
-#define PREDICT_TRUE(x) likely(x)
-
 #define CRASH_UNLESS(x) assert(x)
 #define CHECK(cond) assert(cond)
 #define CHECK_LE(a, b) CRASH_UNLESS((a) <= (b))

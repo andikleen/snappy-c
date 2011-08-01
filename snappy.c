@@ -43,6 +43,7 @@
 #define min_t(t,a,b) ((a) < (b) ? (a) : (b)) // XXX
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
 
+
 #define kuint32max 0xffffffff
 
 static inline bool IsLittleEndian(void)
@@ -516,8 +517,8 @@ static inline int FindMatchLength(const char* s1,
   // time until we find a 64-bit block that doesn't match; then we find
   // the first non-matching bit and use that to calculate the total
   // length of the match.
-  while (PREDICT_TRUE(s2 <= s2_limit - 8)) {
-    if (PREDICT_FALSE(UNALIGNED_LOAD64(s2) == UNALIGNED_LOAD64(s1 + matched))) {
+  while (likely(s2 <= s2_limit - 8)) {
+    if (unlikely(UNALIGNED_LOAD64(s2) == UNALIGNED_LOAD64(s1 + matched))) {
       s2 += 8;
       matched += 8;
     } else {
@@ -531,8 +532,8 @@ static inline int FindMatchLength(const char* s1,
       return matched;
     }
   }
-  while (PREDICT_TRUE(s2 < s2_limit)) {
-    if (PREDICT_TRUE(s1[matched] == *s2)) {
+  while (likely(s2 < s2_limit)) {
+    if (likely(s1[matched] == *s2)) {
       ++s2;
       ++matched;
     } else {
@@ -612,7 +613,7 @@ static char* CompressFragment(const char* const input,
   const char* next_emit = ip;
 
   const int kInputMarginBytes = 15;
-  if (PREDICT_TRUE(input_size >= kInputMarginBytes)) {
+  if (likely(input_size >= kInputMarginBytes)) {
     const char* ip_limit = input + input_size - kInputMarginBytes;
 
     uint32 next_hash;
@@ -653,7 +654,7 @@ static char* CompressFragment(const char* const input,
         DCHECK_EQ(hash, Hash(ip, shift));
         uint32 bytes_between_hash_lookups = skip++ >> 5;
         next_ip = ip + bytes_between_hash_lookups;
-        if (PREDICT_FALSE(next_ip > ip_limit)) {
+        if (unlikely(next_ip > ip_limit)) {
           goto emit_remainder;
         }
         next_hash = Hash(next_ip, shift);
@@ -662,7 +663,7 @@ static char* CompressFragment(const char* const input,
         DCHECK_LT(candidate, ip);
 
         table[hash] = ip - base_ip;
-      } while (PREDICT_TRUE(UNALIGNED_LOAD32(ip) !=
+      } while (likely(UNALIGNED_LOAD32(ip) !=
                             UNALIGNED_LOAD32(candidate)));
 
       // Step 2: A 4-byte match has been found.  We'll later see if more
@@ -695,7 +696,7 @@ static char* CompressFragment(const char* const input,
         // compression we first update table[Hash(ip - 1, ...)].
         const char* insert_tail = ip - 1;
         next_emit = ip;
-        if (PREDICT_FALSE(ip >= ip_limit)) {
+        if (unlikely(ip >= ip_limit)) {
           goto emit_remainder;
         }
         input_bytes = UNALIGNED_LOAD64(insert_tail);
