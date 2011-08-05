@@ -40,19 +40,34 @@
 #include "snappy.h"
 #include "snappy-int.h"
 
+#ifndef __KERNEL__
+
+#include <endian.h>
+
 #define min_t(t,a,b) ((a) < (b) ? (a) : (b)) // XXX
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
+
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+#define __LITTLE_ENDIAN__ 1
+#else
+#define __BIG_ENDIAN__ 1
+#endif
+
+#define ToHost32(x) le32toh(x)
+#define FromHost16(x) htole32(x)
+
+#endif
 
 
 #define kuint32max 0xffffffff
 
 static inline bool IsLittleEndian(void)
 {
-	return true; // XXX
+#ifdef __LITTLE_ENDIAN__
+	return true;
+#endif
+	return false;
 }
-
-#define ToHost32(x) (x)  // XX
-#define FromHost16(x) (x) // XX
 
 static inline void LittleEndianStore16(void *p, uint16 v) 
 {
@@ -506,10 +521,11 @@ static uint16* GetHashTable(struct WorkingMemory *wm, size_t input_size,
 //
 // Separate implementation for x86_64, for speed.  Uses the fact that
 // x86_64 is little endian.
-#if defined(__x86_64__)
+#if defined(__LITTLE_ENDIAN__)
 static inline int FindMatchLength(const char* s1,
                                   const char* s2,
-                                  const char* s2_limit) {
+                                  const char* s2_limit) 
+{
   DCHECK_GE(s2_limit, s2);
   int matched = 0;
 
@@ -545,7 +561,8 @@ static inline int FindMatchLength(const char* s1,
 #else
 static inline int FindMatchLength(const char* s1,
                                   const char* s2,
-                                  const char* s2_limit) {
+                                  const char* s2_limit) 
+{
   // Implementation based on the x86-64 version, above.
   DCHECK_GE(s2_limit, s2);
   int matched = 0;
