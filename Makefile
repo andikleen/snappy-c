@@ -7,7 +7,7 @@ snappy.o: snappy.c
 scmd: scmd.o snappy.o map.o
 
 clean: 
-	rm -f scmd.o snappy.o scmd
+	rm -f scmd.o snappy.o scmd bench bench.o fuzzer.o fuzz map.o
 
 src: src.lex
 	flex src.lex
