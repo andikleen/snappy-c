@@ -15,4 +15,7 @@ src: src.lex
 
 fuzz: fuzzer.o map.o
 
+bench: bench.o map.o snappy.o
+
+bench.o: CFLAGS += -I ../simple-pmu
 
