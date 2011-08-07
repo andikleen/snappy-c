@@ -36,6 +36,15 @@ char *basen(char *s)
 
 #define N 10
 
+int compare(char *a, char *b, size_t size)
+{
+	int i;
+	for (i = 0; i < size; i++)
+		if (a[i] != b[i])
+			return i;
+	return -1;
+}
+
 #define BENCH(name, fn, arg)						\
 	counter_t a, b, total_comp = 0, total_uncomp = 0;		\
 	for (i = 0; i < N + 1; i++) {					\
@@ -57,6 +66,9 @@ char *basen(char *s)
 		    total_uncomp += b - a;				\
             if (err)							\
 		    printf("%s: uncompression of %s failed: %d\n", #name, fn, err); \
+	    int o = compare(buf2, map, size); 				\
+	    if (o >= 0)							\
+		    printf("%s: final comparision failed at %d of %lu\n", #name, o, size); \
        }								\
        printf("%-6s: %s: %lu bytes: ratio %.02f: comp %2.02f uncomp %2.02f c/b\n", \
 	      #name, basen(fn), (unsigned long)size,			\
