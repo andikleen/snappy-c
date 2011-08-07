@@ -111,6 +111,7 @@ static inline const char *varint_parse32_with_limit(const char *p,
 	const unsigned char *ptr = (const unsigned char *)(p);
 	const unsigned char *limit = (const unsigned char *)(l);
 	uint32 b, result;
+
 	if (ptr >= limit)
 		return NULL;
 	b = *(ptr++);
@@ -157,6 +158,7 @@ static inline char *varint_encode32(char *sptr, uint32 v)
 	/* Operate on characters as unsigneds */
 	unsigned char *ptr = (unsigned char *)(sptr);
 	static const int B = 128;
+
 	if (v < (1 << 7)) {
 		*(ptr++) = v;
 	} else if (v < (1 << 14)) {
@@ -413,6 +415,7 @@ static inline char *emit_literal(char *op,
 				 int len, bool allow_fast_path)
 {
 	int n = len - 1;	/* Zero-length literals are disallowed */
+
 	if (n < 60) {
 		/* Fits in tag byte */
 		*op++ = LITERAL | (n << 2);
@@ -569,9 +572,9 @@ static uint16 *get_hash_table(struct working_memory *wm, size_t input_size,
 static inline int find_match_length(const char *s1,
 				    const char *s2, const char *s2_limit)
 {
-	DCHECK_GE(s2_limit, s2);
 	int matched = 0;
 
+	DCHECK_GE(s2_limit, s2);
 	/*
 	 * Find out how long the match is. We loop over the data 64 bits at a
 	 * time until we find a 64-bit block that doesn't match; then we find
@@ -674,7 +677,7 @@ static char *compress_fragment(const char *const input,
 	CHECK_LE(input_size, kblock_size);
 	CHECK_EQ(table_size & (table_size - 1), 0);
 	const int shift = 32 - log2_floor(table_size);
-	DCHECK_EQ(kuint32max >> shift, table_size - 1);
+	DCHECK_EQ(UINT_MAX >> shift, table_size - 1);
 	const char *ip_end = input + input_size;
 	const char *baseip = ip;
 	/*
@@ -684,6 +687,7 @@ static char *compress_fragment(const char *const input,
 	const char *next_emit = ip;
 
 	const int kinput_margin_bytes = 15;
+
 	if (likely(input_size >= kinput_margin_bytes)) {
 		const char *ip_limit = input + input_size - kinput_margin_bytes;
 
@@ -904,7 +908,7 @@ static bool read_uncompressed_length(struct snappy_decompressor *d,
 {
 	DCHECK(d->ip == NULL);	/*
 				 * Must not have read anything yet
-				 *  Length is encoded in 1..5 bytes
+				 * Length is encoded in 1..5 bytes
 				 */
 	*result = 0;
 	uint32 shift = 0;
@@ -936,6 +940,7 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 				struct writer *writer)
 {
 	const char *ip = d->ip;
+
 	for (;;) {
 		if (d->ip_limit - ip < 5) {
 			d->ip = ip;
@@ -970,10 +975,9 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 				d->ip_limit = ip + avail;
 			}
 			bool allow_fast_path = (avail >= 16);
-			if (!writer_append
-			    (writer, ip, literal_length, allow_fast_path)) {
+			if (!writer_append(writer, ip, literal_length, 
+					   allow_fast_path))
 				return;
-			}
 			ip += literal_length;
 		} else {
 			/*
@@ -983,10 +987,9 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 			 * bit 8).
 			 */
 			const uint32 copy_offset = entry & 0x700;
-			if (!writer_append_from_self
-			    (writer, copy_offset + trailer, length)) {
+			if (!writer_append_from_self(writer, copy_offset + trailer, 
+						     length))
 				return;
-			}
 		}
 	}
 }
@@ -994,6 +997,7 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 static bool refill_tag(struct snappy_decompressor *d)
 {
 	const char *ip = d->ip;
+
 	if (ip == d->ip_limit) {
 		size_t n;
 		/* Fetch a new fragment from the reader */
@@ -1016,6 +1020,7 @@ static bool refill_tag(struct snappy_decompressor *d)
 
 	/* Read more bytes from reader if needed */
 	uint32 nbuf = d->ip_limit - ip;
+
 	if (nbuf < needed) {
 		/*
 		 * Stitch together bytes from ip and reader to form the word
@@ -1056,11 +1061,13 @@ static bool refill_tag(struct snappy_decompressor *d)
 	return true;
 }
 
+/* 
+ * Read the uncompressed length from the front of the compressed 
+ * input 
+ */
 static int internal_uncompress(struct source *r,
 			       struct writer *writer, uint32 max_len)
 {
-	/* Read the uncompressed length from the front of the compressed 
-	 * input */
 	struct snappy_decompressor decompressor;
 	uint32 uncompressed_len = 0;
 
