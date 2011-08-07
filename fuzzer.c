@@ -1,7 +1,4 @@
 #include <unistd.h>
-#include <sys/mman.h>
-#include <sys/fcntl.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -11,31 +8,6 @@
 int seed;
 int bits = 1;
 int fuzz = 20;
-
-#define roundup(x,y) (((x) + (y) - 1) & ~((y)-1))
-
-char *mapfile(char *fn, int oflags, size_t *size)
-{
-	int fd = open(fn, oflags, 0644);
-	if (fd < 0)
-		return NULL;
-	struct stat st;
-	char *map = NULL;
-	if (fstat(fd, &st) >= 0) {
-		int pagesize = sysconf(_SC_PAGE_SIZE);
-		map = mmap(NULL, roundup(st.st_size, pagesize),
-			PROT_READ | ((oflags & O_WRONLY) ? PROT_WRITE : 0),
-				 MAP_SHARED, 
-				 fd, 0);
-		close(fd);
-		if (map == (char *)-1)
-			map = NULL;
-	} else
-		close(fd);
-	return map;
-			
-				
-}
 
 void fuzzfile(char *fn)
 {

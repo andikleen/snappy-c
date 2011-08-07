@@ -1,6 +1,4 @@
 /* Simple command line tool for snappy */
-#include <sys/mman.h>
-#include <sys/stat.h>
 #include <sys/fcntl.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -8,31 +6,9 @@
 #include <string.h>
 #include <stdio.h>
 #include "snappy.h"
+#include "map.h"
 
 enum { undef, compress, uncompress } mode = undef;
-
-char *mapfile(char *file, size_t *size)
-{
-	int fd = open(file, O_RDONLY);
-	if (fd < 0) 
-		return NULL;
-	
-	struct stat st;
-	if (fstat(fd, &st) >= 0) {
-		size_t ps = sysconf(_SC_PAGE_SIZE);
-		*size = (st.st_size + ps - 1) & ~(ps - 1);
-		
-		char *map = mmap(NULL, *size, PROT_READ, MAP_SHARED,
-				 fd, 0);
-		close(fd);
-		if (map == (char *)-1)
-			return NULL;
-		*size = st.st_size;
-		return map;		
-	} 
-	close(fd);
-	return NULL;		
-}
 
 void usage(void)
 {
@@ -129,7 +105,7 @@ int main(int ac, char **av)
 	else
 		mode = compress;
 
-	map = mapfile(av[optind], &size);
+	map = mapfile(av[optind], O_RDONLY, &size);
 	if (!map) { 
 		fprintf(stderr, "Cannot open %s: %s\n", av[1], strerror(errno));
 		exit(1);
