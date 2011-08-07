@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include "map.h"
 
+#define roundup(x,y) (((x) + (y) - 1) & ~((y) - 1))
+
 char *mapfile(char *file, int oflags, size_t *size)
 {
 	int fd = open(file, oflags, 0644);
@@ -14,7 +16,7 @@ char *mapfile(char *file, int oflags, size_t *size)
 	struct stat st;
 	if (fstat(fd, &st) >= 0) {
 		size_t ps = sysconf(_SC_PAGE_SIZE);
-		*size = (st.st_size + ps - 1) & ~(ps - 1);		
+		*size =  roundup(st.st_size, ps);
 		char *map = mmap(NULL, *size, 
 				 PROT_READ|((oflags & O_WRONLY)?PROT_WRITE:0), 
 				 MAP_SHARED,
@@ -27,4 +29,10 @@ char *mapfile(char *file, int oflags, size_t *size)
 	} 
 	close(fd);
 	return NULL;		
+}
+
+void unmap_file(char *map, size_t size)
+{
+	size_t ps = sysconf(_SC_PAGE_SIZE);
+	munmap(map, roundup(size, ps));
 }

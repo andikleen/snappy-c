@@ -1,4 +1,7 @@
-CFLAGS := -Wall -g -O2 -DNDEBUG=1
+CFLAGS := -Wall -g -O2 -DNDEBUG=1 
+
+CFLAGS += -m32
+LDFLAGS += -m32
 
 all: scmd
 
@@ -15,7 +18,9 @@ src: src.lex
 
 fuzz: fuzzer.o map.o
 
-bench: bench.o map.o snappy.o
+bench: bench.o map.o snappy.o ../comp/lzo.o
 
-bench.o: CFLAGS += -I ../simple-pmu
+bench.o: CFLAGS += -I ../simple-pmu -D COMP
+
+
 

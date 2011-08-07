@@ -7,6 +7,11 @@
 #include "map.h"
 #include "snappy.h"
 
+#ifdef COMP
+#include "../comp/zlib.h"
+#include "../comp/lzo/lzo.h"
+#endif
+
 #define err(x) perror(x), exit(1)
 
 int main(int ac, char **av)
@@ -58,7 +63,7 @@ int main(int ac, char **av)
 			sync_core();
 
 			if (err) 
-				printf("compression of %s failed: %d", *av, err);
+				printf("compression of %s failed: %d\n", *av, err);
 			sync_core();
 			a = unhalted_core();
 			err = snappy_uncompress(out, outlen, buf2);
@@ -77,7 +82,57 @@ int main(int ac, char **av)
 		       (double)(total_comp / N) / size,
 		       (double)(total_uncomp / N) / size);
 
+
+		free(out);
+
+#ifdef COMP		
+		out = malloc(lzo1x_worst_compress(size));
+		if (!out) exit(ENOMEM);
+
+		char lzo_wmem[LZO1X_MEM_COMPRESS];
+
+		size_t size2 = size;
+		lzo1x_1_compress(map, size, out, &outlen, lzo_wmem);
+		lzo1x_decompress_safe(out, outlen, buf2, &size2);
 		
+		for (i = 0; i < N; i++) { 
+			sync_core();
+			a = unhalted_core();
+			err = lzo1x_1_compress(map, size, out, &outlen, lzo_wmem);
+			b = unhalted_core();
+			total_comp += b - a;
+			sync_core();
+
+			if (err) 
+				printf("compression of %s failed: %d\n", *av, 
+				       err);
+			sync_core();
+			a = unhalted_core();
+			size2 = size;
+			err = lzo1x_decompress_safe(out, outlen, buf2, &size2);
+			b = unhalted_core();			
+			sync_core();
+			total_uncomp += b - a;
+			if (err)
+				printf("uncompression of %s failed: %d\n", 
+				       *av, err;
+
+			
+		}
+		
+		printf("lzo: %s: %lu bytes: ratio %.02f: comp %.02f uncomp %.02f cycles/byte\n", 
+		       *av, size, 
+		       (double)outlen / size, 
+		       (double)(total_comp / N) / size,
+		       (double)(total_uncomp / N) / size);
+
+		free(out);
+		
+		
+#endif
+		
+		free(buf2);
+		unmap_file(map, size);
 		
 	}
 	return 0;
