@@ -11,5 +11,7 @@ clean:
 
 src: src.lex
 	flex src.lex
-	gcc -o src lex.yy.c
+	gcc ${CFLAGS} -o src lex.yy.c
+
+fuzz: fuzzer.o
 

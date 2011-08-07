@@ -20,7 +20,7 @@ char *mapfile(char *fn, int oflags, size_t *size)
 	if (fd < 0)
 		return NULL;
 	struct stat st;
-	char *map;
+	char *map = NULL;
 	if (fstat(fd, &st) >= 0) {
 		int pagesize = sysconf(_SC_PAGE_SIZE);
 		map = mmap(NULL, roundup(st.st_size, pagesize),
@@ -30,7 +30,8 @@ char *mapfile(char *fn, int oflags, size_t *size)
 		close(fd);
 		if (map == (char *)-1)
 			map = NULL;
-	}
+	} else
+		close(fd);
 	return map;
 			
 				
