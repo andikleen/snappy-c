@@ -1,7 +1,7 @@
 CFLAGS := -Wall -g -O2 -DNDEBUG=1 
 
-CFLAGS += -m32
-LDFLAGS += -m32
+#CFLAGS += -m32
+#LDFLAGS += -m32
 
 all: scmd
 
