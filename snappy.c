@@ -55,12 +55,15 @@
 #define __BIG_ENDIAN__ 1
 #endif
 
-#define to_host32(x) le32toh(x)
-#define from_host16(x) htole32(x)
+#define put_unaligned_le16(v,a) (*(unsigned short *)(a) = htole16(v))
+#define get_unaligned_le32(a)  (le32toh(*(unsigned *)(a)))
+#define get_unaligned(a) (*(a))
+#define put_unaligned(x,a) (*(a) = (x))
+
+typedef unsigned long long u64;
+typedef unsigned u32;
 
 #endif
-
-#define kuint32max 0xffffffff
 
 static inline bool is_little_endian(void)
 {
@@ -70,27 +73,17 @@ static inline bool is_little_endian(void)
 	return false;
 }
 
-static inline void little_endian_store16(void *p, uint16 v)
-{
-	UNALIGNED_STORE16(p, from_host16(v));
-}
-
-static inline uint32 little_endian_load32(const void *p)
-{
-	return to_host32(UNALIGNED_LOAD32(p));
-}
-
 static inline int log2_floor(uint32 n)
 {
 	return n == 0 ? -1 : 31 ^ __builtin_clz(n);
 }
 
-static inline int find_l_s_b_set_non_zero(uint32 n)
+static inline int find_lsb_set_non_zero(uint32 n)
 {
 	return __builtin_ctz(n);
 }
 
-static inline int find_l_s_b_set_non_zero64(uint64 n)
+static inline int find_lsb_set_non_zero64(uint64 n)
 {
 	return __builtin_ctzll(n);
 }
@@ -294,12 +287,12 @@ static inline void incremental_copy_fast_path(const char *src, char *op,
 					      int len)
 {
 	while (op - src < 8) {
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(src));
+		put_unaligned(get_unaligned((u64 *)src), (u64 *)src);
 		len -= op - src;
 		op += op - src;
 	}
 	while (len > 0) {
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(src));
+		put_unaligned(get_unaligned((u64 *)src), (u64 *)op);
 		src += 8;
 		op += 8;
 		len -= 8;
@@ -315,17 +308,19 @@ static inline bool writer_append_from_self(struct writer *w, uint32 offset,
 	if (op - w->base <= offset - 1u)	/* -1u catches offset==0 */
 		return false;
 	if (len <= 16 && offset >= 8 && space_left >= 16) {
-		/* Fast path, used for the majority (70-80%) of dynamic 
-		 * invocations. */
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(op - offset));
-		UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(op - offset + 8));
+		/* 
+		 * Fast path, used for the majority (70-80%) of dynamic 
+		 * invocations. 
+		 */
+		put_unaligned(get_unaligned((u64 *)(op - offset)), (u64 *)op);
+		put_unaligned(get_unaligned((u64 *)(op - offset + 8)), 
+			      (u64 *)(op + 8));
 	} else {
 		if (space_left >= len + kmax_increment_copy_overflow) {
 			incremental_copy_fast_path(op - offset, op, len);
 		} else {
-			if (space_left < len) {
+			if (space_left < len)
 				return false;
-			}
 			incremental_copy(op - offset, op, len);
 		}
 	}
@@ -340,10 +335,13 @@ static inline bool writer_append(struct writer *w, const char *ip, uint32 len,
 	char *op = w->op;
 	const int space_left = w->op_limit - op;
 	if (allow_fast_path && len <= 16 && space_left >= 16) {
-		/* Fast path, used for the majority (about 90%) of dynamic 
-		 * invocations. */
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(ip));
-		UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(ip + 8));
+		/* 
+		 * Fast path, used for the majority (about 90%) of dynamic 
+		 * invocations. 
+		 */
+		put_unaligned(get_unaligned((u64 *)(ip)), (u64 *)op);
+		put_unaligned(get_unaligned((u64 *)(ip + 8)), 
+			      (u64 *)(op + 8));
 	} else {
 		if (space_left < len)
 			return false;
@@ -373,7 +371,7 @@ static inline uint32 hash_bytes(uint32 bytes, int shift)
 
 static inline uint32 hash(const char *p, int shift)
 {
-	return hash_bytes(UNALIGNED_LOAD32(p), shift);
+	return hash_bytes(get_unaligned((u32 *)p), shift);
 }
 
 /*
@@ -433,9 +431,9 @@ static inline char *emit_literal(char *op,
  *     MaxCompressedLength).
  */
 		if (allow_fast_path && len <= 16) {
-			UNALIGNED_STORE64(op, UNALIGNED_LOAD64(literal));
-			UNALIGNED_STORE64(op + 8,
-					  UNALIGNED_LOAD64(literal + 8));
+			put_unaligned(get_unaligned((u64 *)literal), (u64 *)op);
+			put_unaligned(get_unaligned((u64 *)(literal + 8)), 
+				      (u64 *)(op + 8));
 			return op + len;
 		}
 	} else {
@@ -471,7 +469,7 @@ static inline char *emit_copy_less_than64(char *op, int offset, int len)
 		*op++ = offset & 0xff;
 	} else {
 		*op++ = COPY_2_BYTE_OFFSET | ((len - 1) << 2);
-		little_endian_store16(op, offset);
+		put_unaligned_le16(offset, op);
 		op += 2;
 	}
 	return op;
@@ -582,8 +580,8 @@ static inline int find_match_length(const char *s1,
 	 * length of the match.
 	 */
 	while (likely(s2 <= s2_limit - 8)) {
-		if (unlikely
-		    (UNALIGNED_LOAD64(s2) == UNALIGNED_LOAD64(s1 + matched))) {
+		if (unlikely(get_unaligned((u64 *)s2) == 
+			     get_unaligned((u64 *)(s1 + matched)))) {
 			s2 += 8;
 			matched += 8;
 		} else {
@@ -595,10 +593,9 @@ static inline int find_match_length(const char *s1,
 			 * and newer, and we expect AMD's bsf
 			 * instruction to improve.
 			 */
-			uint64 x =
-			    UNALIGNED_LOAD64(s2) ^ UNALIGNED_LOAD64(s1 +
-								    matched);
-			int matching_bits = find_l_s_b_set_non_zero64(x);
+			uint64 x = get_unaligned((u64 *)s2);
+			x ^= get_unaligned((u64 *)(s1 + matched));
+			int matching_bits = find_lsb_set_non_zero64(x);
 			matched += matching_bits >> 3;
 			return matched;
 		}
@@ -618,18 +615,18 @@ static inline int find_match_length(const char *s1,
 				    const char *s2, const char *s2_limit)
 {
 	/* Implementation based on the x86-64 version, above. */
-	DCHECK_GE(s2_limit, s2);
 	int matched = 0;
 
+	DCHECK_GE(s2_limit, s2);
 	while (s2 <= s2_limit - 4 &&
-	       UNALIGNED_LOAD32(s2) == UNALIGNED_LOAD32(s1 + matched)) {
+	       get_unaligned((u32 *)s2) == get_unaligned((u32 *)(s1 + matched))) {
 		s2 += 4;
 		matched += 4;
 	}
 	if (is_little_endian() && s2 <= s2_limit - 4) {
-		uint32 x =
-		    UNALIGNED_LOAD32(s2) ^ UNALIGNED_LOAD32(s1 + matched);
-		int matching_bits = find_l_s_b_set_non_zero(x);
+		uint32 x = get_unaligned((u32 *)s2);
+		x ^= get_unaligned((u32 *)(s1 + matched));
+		int matching_bits = find_lsb_set_non_zero(x);
 		matched += matching_bits >> 3;
 	} else {
 		while ((s2 < s2_limit) && (s1[matched] == *s2)) {
@@ -731,17 +728,16 @@ static char *compress_fragment(const char *const input,
 				DCHECK_EQ(hval, hash(ip, shift));
 				uint32 bytes_between_hash_lookups = skip++ >> 5;
 				next_ip = ip + bytes_between_hash_lookups;
-				if (unlikely(next_ip > ip_limit)) {
+				if (unlikely(next_ip > ip_limit))
 					goto emit_remainder;
-				}
 				next_hash = hash(next_ip, shift);
 				candidate = baseip + table[hval];
 				DCHECK_GE(candidate, baseip);
 				DCHECK_LT(candidate, ip);
 
 				table[hval] = ip - baseip;
-			} while (likely(UNALIGNED_LOAD32(ip) !=
-					UNALIGNED_LOAD32(candidate)));
+			} while (likely(get_unaligned((u32 *)ip) !=
+					get_unaligned((u32 *)candidate)));
 
 /*
  * Step 2: A 4-byte match has been found.  We'll later see if more
@@ -786,7 +782,7 @@ static char *compress_fragment(const char *const input,
 				if (unlikely(ip >= ip_limit)) {
 					goto emit_remainder;
 				}
-				input_bytes = UNALIGNED_LOAD64(insert_tail);
+				input_bytes = get_unaligned((u64 *)insert_tail);
 				uint32 prev_hash =
 				    hash_bytes(get_uint32_at_offset
 					       (input_bytes, 0), shift);
@@ -795,14 +791,13 @@ static char *compress_fragment(const char *const input,
 				    hash_bytes(get_uint32_at_offset
 					       (input_bytes, 1), shift);
 				candidate = baseip + table[cur_hash];
-				candidate_bytes = UNALIGNED_LOAD32(candidate);
+				candidate_bytes = get_unaligned((u32 *)candidate);
 				table[cur_hash] = ip - baseip;
 			} while (get_uint32_at_offset(input_bytes, 1) ==
 				 candidate_bytes);
 
-			next_hash =
-			    hash_bytes(get_uint32_at_offset(input_bytes, 2),
-				       shift);
+			next_hash = hash_bytes(get_uint32_at_offset(input_bytes, 2),
+					       shift);
 			++ip;
 		}
 	}
@@ -952,13 +947,14 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 		const unsigned char c = *(const unsigned char *)(ip++);
 		const uint32 entry = char_table[c];
 		const uint32 trailer =
-		    little_endian_load32(ip) & wordmask[entry >> 11];
+			get_unaligned_le32((u32 *)ip) & wordmask[entry >> 11];
 		ip += entry >> 11;
 		const uint32 length = entry & 0xff;
 
 		if ((c & 0x3) == LITERAL) {
 			uint32 literal_length = length + trailer;
 			uint32 avail = d->ip_limit - ip;
+
 			while (avail < literal_length) {
 				bool allow_fast_path = (avail >= 16);
 				if (!writer_append
