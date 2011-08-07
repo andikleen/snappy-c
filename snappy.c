@@ -1063,11 +1063,10 @@ static int internal_uncompress(struct source *r,
 	init_snappy_decompressor(&decompressor, r);
 
 	if (!read_uncompressed_length(&decompressor, &uncompressed_len))
-		return false;
-	/* Protect against possible DoS attack */
-	if ((uint64) (uncompressed_len) > max_len) {
 		return -EIO;
-	}
+	/* Protect against possible DoS attack */
+	if ((uint64) (uncompressed_len) > max_len)
+		return -EIO;
 
 	writer_set_expected_length(writer, uncompressed_len);
 
