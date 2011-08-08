@@ -6,6 +6,9 @@
 #include <string.h>
 #include "map.h"
 #include "snappy.h"
+#include "util.h"
+
+#define N 10
 
 #ifdef SIMPLE_PMU
 #include "cycles.h"
@@ -15,38 +18,6 @@ typedef unsigned long long counter_t;
 #define COUNT() __builtin_ia32_rdtsc()
 #define sync_core() asm volatile("lfence" ::: "memory")
 #endif
-
-#define err(x) perror(x), exit(1)
-#define u8 unsigned char
-
-void *xmalloc(size_t size)
-{
-	void *ptr = malloc(size);
-	if (!ptr) {
-		fprintf(stderr, "out of memory\n");
-		exit(1);
-	}
-	return ptr;
-}
-
-char *basen(char *s)
-{
-	char *p = strrchr(s, '/');
-	if (p) 
-		return p + 1;
-	return s;
-}
-
-#define N 10
-
-int compare(char *a, char *b, size_t size)
-{
-	int i;
-	for (i = 0; i < size; i++)
-		if (a[i] != b[i])
-			return i;
-	return -1;
-}
 
 #define BENCH(name, names, fn, arg)					\
 	counter_t a, b, total_comp = 0, total_uncomp = 0;		\

@@ -17,8 +17,10 @@ char *mapfile_flag(char *file, int oflags, size_t *size, int flag)
 	if (fstat(fd, &st) >= 0 && (*size = st.st_size) > 0) {
 		size_t ps = sysconf(_SC_PAGE_SIZE);
 		*size =  roundup(st.st_size, ps);
-		char *map = mmap(NULL, *size, 
-				 PROT_READ|((oflags & O_WRONLY)?PROT_WRITE:0), 
+		int prot = PROT_READ;
+		if ((oflags & O_WRONLY) || (flag & MAP_PRIVATE))
+			prot |= PROT_WRITE;
+		char *map = mmap(NULL, *size, prot,
 				 flag,
 				 fd, 0);
 		close(fd);

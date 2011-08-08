@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include "snappy.h"
 #include "map.h"
+#include "util.h"
 
 enum { undef, compress, uncompress } mode = undef;
 
@@ -20,17 +21,6 @@ void usage(void)
 		"Compress or uncompress file with snappy.\n"
 		"When no output file is specified write to file.snp\n");
 	exit(1);
-}
-
-void *xmalloc(size_t size)
-{
-	void *ptr = malloc(size);
-	if (!ptr) {
-		fprintf(stderr, "Cannot allocate %lu bytes of memory\n", 
-			(unsigned long)size); 
-		exit(1);
-	}
-	return ptr;
 }
 
 int match_suffix(char *p, char *suf)

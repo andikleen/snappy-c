@@ -5,28 +5,7 @@
 #include <sys/fcntl.h>
 #include <unistd.h>
 #include <string.h>
-
-#define err(x) perror(x), exit(1)
-
-void *xmalloc(size_t size)
-{
-	void *ptr = malloc(size);
-	if (!ptr) {
-		fprintf(stderr, "out of memory\n");
-		exit(1);
-	}
-	return ptr;
-}
-
-int compare(char *a, char *b, size_t size)
-{
-	int i;
-	for (i = 0; i < size; i++)
-		if (a[i] != b[i])
-			return i;
-	return -1;
-}
-
+#include "util.h"
 
 int main(int ac, char **av)
 {
