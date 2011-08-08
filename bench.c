@@ -11,6 +11,8 @@
 #include "../comp/zconf.h"
 #include "../comp/zlib.h"
 #include "../comp/lzo/lzo.h"
+#include "../comp/lzf.h"
+#include "../comp/quicklz.h"
 #endif
 
 #ifdef SIMPLE_PMU
@@ -56,8 +58,9 @@ int compare(char *a, char *b, size_t size)
 
 #define BENCH(name, names, fn, arg)					\
 	counter_t a, b, total_comp = 0, total_uncomp = 0;		\
+	size_t orig_outlen = outlen;					\
 	for (i = 0; i < N + 1; i++) {					\
-	    printf("%d\n", i);					\
+	    outlen = orig_outlen;					\
 	    sync_core();						\
             a = COUNT();						\
 	    err = c_##name(map, size, out, &outlen, arg);		\
@@ -161,6 +164,7 @@ static inline int c_zlib(char *map, size_t size, char *out, size_t *outlen, void
 	if (ret != Z_OK) 
 		return ret;
 
+	//*outlen = s->comp.total_out;
 	return 0;
 }
 
@@ -223,6 +227,71 @@ void test_zlib(char *map, size_t size, char *fn, int level)
 	free(buf2);
 }
 
+
+static inline int c_lzf(char *map, size_t size, char *out, size_t *outlen, void *a)
+{
+	size_t n;
+	n = lzf_compress(map, size, out, *outlen);
+	if (n == 0)
+		return -1;
+	*outlen = n;
+	return 0;
+}
+
+static inline int d_lzf(char *out, size_t outlen, char *buf2, size_t size, void *a)
+{
+	if (lzf_decompress(out, outlen, buf2, size) == 0)
+		return -1;
+	return 0;
+}
+
+void test_lzf(char *map, size_t size, char *fn)
+{
+	int i;
+	int err;       
+	size_t outlen = size * 2;
+	char *out = xmalloc(outlen);
+	char *buf2 = xmalloc(size);
+
+	BENCH(lzf, "lzf", fn, NULL);
+
+	free(out);
+	free(buf2);
+}
+
+
+static inline int c_quicklz(char *map, size_t size, char *out, size_t *outlen, void *a)
+{
+	if (qlz_compress(map, out, size, a) == 0)
+		return -1;
+
+	*outlen = qlz_size_compressed(out);
+	return 0;
+}
+
+static inline int d_quicklz(char *out, size_t outlen, char *buf2, size_t size, void *a)
+{
+	if (qlz_decompress(out, buf2, a) == 0)
+		return -1;
+	return 0;
+}
+
+void test_quicklz(char *map, size_t size, char *fn)
+{
+	int i;
+	int err;       
+	size_t outlen = size * 2;
+	char *out = xmalloc(outlen);
+	char *buf2 = xmalloc(size);
+	qlz_state_compress state;
+	memset(&state, 0, sizeof(qlz_state_compress));
+
+	BENCH(quicklz, "qlz", fn, &state);
+
+	free(out);
+	free(buf2);
+}
+
 int main(int ac, char **av)
 {
 #ifdef SIMPLE_PMU
@@ -248,9 +317,11 @@ int main(int ac, char **av)
 
 #ifdef COMP		
 		test_lzo(map, size, *av);
+		test_zlib(map, size, *av, 1);
 		test_zlib(map, size, *av, 3);
-		test_zlib(map, size, *av, 6);
-		test_zlib(map, size, *av, 9);
+		//test_zlib(map, size, *av, 5);
+		test_lzf(map, size, *av);
+		test_quicklz(map, size, *av);
 #endif		
 
 		unmap_file(map, size);

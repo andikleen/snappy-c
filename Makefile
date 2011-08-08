@@ -18,7 +18,10 @@ src: src.lex
 
 fuzz: fuzzer.o map.o
 
-bench: bench.o map.o snappy.o ../comp/lzo.o ../comp/zlib.o
+OTHER := ../comp/lzo.o ../comp/zlib.o ../comp/lzf.o ../comp/quicklz.o \
+	 ../comp/fastlz.o
+
+bench: bench.o map.o snappy.o ${OTHER}
 
 bench.o: CFLAGS += -I ../simple-pmu -D COMP
 
