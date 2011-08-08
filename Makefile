@@ -3,14 +3,14 @@ CFLAGS := -Wall -g -O2 -DNDEBUG=1
 #CFLAGS += -m32
 #LDFLAGS += -m32
 
-all: scmd
+all: scmd verify fuzz
 
 snappy.o: snappy.c
 
 scmd: scmd.o snappy.o map.o
 
 clean: 
-	rm -f scmd.o snappy.o scmd bench bench.o fuzzer.o fuzz map.o
+	rm -f scmd.o snappy.o scmd bench bench.o fuzzer.o fuzz map.o verify.o
 
 src: src.lex
 	flex src.lex
@@ -26,5 +26,6 @@ bench: bench.o map.o snappy.o ${OTHER}
 
 bench.o: CFLAGS += -I ../simple-pmu -D COMP -D SIMPLE_PMU
 
+verify: verify.o map.o snappy.o
 
 
