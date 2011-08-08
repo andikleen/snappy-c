@@ -3,20 +3,23 @@ CFLAGS := -Wall -g -O2 -DNDEBUG=1
 #CFLAGS += -m32
 #LDFLAGS += -m32
 
-all: scmd verify fuzz
+all: scmd verify
 
 snappy.o: snappy.c
 
 scmd: scmd.o snappy.o map.o
 
+CLEAN := scmd.o snappy.o scmd bench bench.o fuzzer.o fuzzer map.o verify.o \
+	 verify
+
 clean: 
-	rm -f scmd.o snappy.o scmd bench bench.o fuzzer.o fuzz map.o verify.o
+	rm -f ${CLEAN}
 
 src: src.lex
 	flex src.lex
 	gcc ${CFLAGS} -o src lex.yy.c
 
-fuzz: fuzzer.o map.o
+fuzzer: fuzzer.o map.o
 
 OTHER := ../comp/lzo.o ../comp/zlib.o ../comp/lzf.o ../comp/quicklz.o \
 	 ../comp/fastlz.o

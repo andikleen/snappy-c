@@ -3,7 +3,9 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <stdio.h>
-
+#include <sys/fcntl.h>
+#include <sys/mman.h>
+#include "map.h"
 
 int seed;
 int bits = 1;
@@ -13,7 +15,7 @@ void fuzzfile(char *fn)
 {
 	size_t size;
 
-	char *file = mapfile(fn, O_RDWR, &size);
+	char *file = mapfile_flag(fn, O_RDWR, &size, MAP_PRIVATE);
 	if (!file)
 		return;
 	
