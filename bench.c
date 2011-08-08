@@ -4,13 +4,22 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
-#include "cycles.h"
 #include "map.h"
 #include "snappy.h"
 
 #ifdef COMP
+#include "../comp/zconf.h"
 #include "../comp/zlib.h"
 #include "../comp/lzo/lzo.h"
+#endif
+
+#ifdef SIMPLE_PMU
+#include "cycles.h"
+#define COUNT() unhalted_core()
+#else
+typedef unsigned long long counter_t;
+#define COUNT() __builtin_ia32_rdtsc()
+#define sync_core() asm volatile("lfence" ::: "memory")
 #endif
 
 #define err(x) perror(x), exit(1)
@@ -45,36 +54,37 @@ int compare(char *a, char *b, size_t size)
 	return -1;
 }
 
-#define BENCH(name, fn, arg)						\
+#define BENCH(name, names, fn, arg)					\
 	counter_t a, b, total_comp = 0, total_uncomp = 0;		\
 	for (i = 0; i < N + 1; i++) {					\
+	    printf("%d\n", i);					\
 	    sync_core();						\
-            a = unhalted_core();					\
+            a = COUNT();						\
 	    err = c_##name(map, size, out, &outlen, arg);		\
-	    b = unhalted_core();					\
+	    b = COUNT();						\
 	    if (i > 0) 							\
 		    total_comp += b - a;				\
 	    sync_core();						\
 	    if (err)							\
-		    printf("%s: compression of %s failed: %d\n", #name, fn, err); \
+		    printf("%s: compression of %s failed: %d\n", names, fn, err); \
 	    sync_core();						\
-	    a = unhalted_core();					\
+	    a = COUNT();						\
 	    err = d_##name(out, outlen, buf2, size, arg);		\
-	    b = unhalted_core();					\
+	    b = COUNT();						\
             sync_core();						\
 	    if (i > 0)							\
 		    total_uncomp += b - a;				\
             if (err)							\
-		    printf("%s: uncompression of %s failed: %d\n", #name, fn, err); \
+		    printf("%s: uncompression of %s failed: %d\n", names, fn, err); \
 	    int o = compare(buf2, map, size); 				\
 	    if (o >= 0)							\
-		    printf("%s: final comparision failed at %d of %lu\n", #name, o, size); \
+		    printf("%s: final comparision failed at %d of %lu\n", names, o, size); \
        }								\
-       printf("%-6s: %s: %lu bytes: ratio %.02f: comp %2.02f uncomp %2.02f c/b\n", \
-	      #name, basen(fn), (unsigned long)size,			\
+       printf("%-6s: %s: %lu b: ratio %.02f: comp %2.02f uncomp %2.02f c/b\n", \
+	      names, basen(fn), (unsigned long)size,			\
 	      (double)outlen / size,					\
 	      (double)(total_comp / N) / size,				\
-	      (double)(total_uncomp / N) / size);			\
+	      (double)(total_uncomp / N) / size);		       
 
 
 static inline int c_snappy(char *map, size_t size, char *out, size_t *outlen, void *a)
@@ -95,7 +105,7 @@ void test_snappy(char *map, size_t size, char *fn)
 	char *out = xmalloc(snappy_max_compressed_length(size));
 	char *buf2 = xmalloc(size);
 
-	BENCH(snappy, fn, NULL);
+	BENCH(snappy, "snappy", fn, NULL);
 
 	free(out);
 	free(buf2);
@@ -120,8 +130,94 @@ void test_lzo(char *map, size_t size, char *fn)
 	char *buf2 = xmalloc(size);
 
 	char lzo_wmem[LZO1X_MEM_COMPRESS];
+	memset(lzo_wmem, 0, LZO1X_MEM_COMPRESS);
 
-	BENCH(lzo, fn, lzo_wmem);
+	BENCH(lzo, "lzo", fn, lzo_wmem);
+
+	free(out);
+	free(buf2);
+}
+
+struct state {
+	struct z_stream_s comp;
+	struct z_stream_s de;
+};
+
+static inline int c_zlib(char *map, size_t size, char *out, size_t *outlen, void *a)
+{
+	struct state *s = a;
+	int ret;
+	s->comp.next_in = map;
+	s->comp.avail_in = size;
+	s->comp.total_in = 0;
+	s->comp.next_out = out;
+	s->comp.avail_out = *outlen;
+	s->comp.total_out = 0;
+	ret = zlib_deflate(&s->comp, Z_FINISH);
+	if (ret != Z_STREAM_END)
+		return ret;
+
+	ret = zlib_deflateReset(&s->comp);
+	if (ret != Z_OK) 
+		return ret;
+
+	return 0;
+}
+
+static inline int d_zlib(char *out, size_t outlen, char *buf2, size_t size, void *a)
+{
+	struct state *s = a;
+	int ret;
+
+	s->de.next_in = out;
+	s->de.avail_in = outlen;
+	s->de.next_out = buf2;
+	s->de.avail_out = size;
+	s->de.total_in = 0;
+	s->de.total_out = 0;
+	ret = zlib_inflate(&s->de, Z_FINISH);
+	if (ret != Z_STREAM_END)
+		return ret;
+	ret = zlib_inflateReset(&s->de);
+	if (ret != Z_OK) 
+		return ret;
+	return 0;
+}
+
+void test_zlib(char *map, size_t size, char *fn, int level)
+{
+	char name[30];
+	int i;
+	int err;       
+	size_t outlen = size * 2; /* XXX? */
+	char *out = xmalloc(outlen);
+	char *buf2 = xmalloc(size);
+	struct state state;
+	memset(&state, 0, sizeof state);
+
+	state.comp.workspace = calloc(zlib_deflate_workspacesize(MAX_WBITS, MAX_MEM_LEVEL), 1);
+	
+	err = zlib_deflateInit(&state.comp, level);
+	if (err != Z_OK) {
+		printf("zlib_deflateinit failed: %d\n", err);
+		exit(1);
+	}
+
+	state.de.workspace = calloc(zlib_inflate_workspacesize(), 1);
+	err = zlib_inflateInit(&state.de);
+	if (err != Z_OK) {
+		printf("zlib_inflateinit failed: %d\n", err);
+		exit(1);
+	}
+	
+	sprintf(name, "zlib%d", level);	
+	BENCH(zlib, name, fn, &state);
+
+	zlib_deflateEnd(&state.comp);
+	zlib_inflateEnd(&state.de);
+
+	free(state.de.workspace);
+	free(state.comp.workspace);
 
 	free(out);
 	free(buf2);
@@ -129,11 +225,13 @@ void test_lzo(char *map, size_t size, char *fn)
 
 int main(int ac, char **av)
 {
+#ifdef SIMPLE_PMU
 	pin_cpu(NULL);
 	if(perfmon_available() == 0) {
 		printf("no perfmon support\n");
 		exit(1);
 	}
+#endif
 
 	while (*++av) { 
 		size_t size;
@@ -150,6 +248,9 @@ int main(int ac, char **av)
 
 #ifdef COMP		
 		test_lzo(map, size, *av);
+		test_zlib(map, size, *av, 3);
+		test_zlib(map, size, *av, 6);
+		test_zlib(map, size, *av, 9);
 #endif		
 
 		unmap_file(map, size);
