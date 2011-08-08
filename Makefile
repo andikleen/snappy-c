@@ -1,7 +1,7 @@
 CFLAGS := -Wall -g -O2 -DNDEBUG=1 
 
-#CFLAGS += -m32
-#LDFLAGS += -m32
+CFLAGS += -m32
+LDFLAGS += -m32
 
 all: scmd verify
 
@@ -27,7 +27,7 @@ OTHER := ../comp/lzo.o ../comp/zlib.o ../comp/lzf.o ../comp/quicklz.o \
 
 bench: bench.o map.o snappy.o ${OTHER}
 
-bench.o: CFLAGS += -I ../simple-pmu -D COMP -D SIMPLE_PMU
+bench.o: CFLAGS += -I ../simple-pmu -D COMP # -D SIMPLE_PMU
 
 verify: verify.o map.o snappy.o
 

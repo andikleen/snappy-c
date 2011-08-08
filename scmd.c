@@ -26,7 +26,8 @@ void *xmalloc(size_t size)
 {
 	void *ptr = malloc(size);
 	if (!ptr) {
-		fprintf(stderr, "Cannot allocate %lu bytes of memory\n", size); 
+		fprintf(stderr, "Cannot allocate %lu bytes of memory\n", 
+			(unsigned long)size); 
 		exit(1);
 	}
 	return ptr;

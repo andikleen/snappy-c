@@ -65,7 +65,8 @@ int main(int ac, char **av)
 			int o = compare(buf2, map, size);			
 			if (o >= 0) {
 				failed = 1;
-				printf("final comparision of %s failed at %d of %lu\n", *av, o, size);
+				printf("final comparision of %s failed at %d of %lu\n", 
+				       *av, o, (unsigned long)size);
 			}
 		}
 

@@ -82,7 +82,7 @@ int compare(char *a, char *b, size_t size)
 		    printf("%s: uncompression of %s failed: %d\n", names, fn, err); \
 	    int o = compare(buf2, map, size); 				\
 	    if (o >= 0)							\
-		    printf("%s: final comparision failed at %d of %lu\n", names, o, size); \
+		    printf("%s: final comparision failed at %d of %lu\n", names, o, (unsigned long)size); \
        }								\
        printf("%-6s: %s: %lu b: ratio %.02f: comp %3.02f uncomp %2.02f c/b\n", \
 	      names, basen(fn), (unsigned long)size,			\
@@ -151,10 +151,10 @@ static inline int c_zlib(char *map, size_t size, char *out, size_t *outlen, void
 {
 	struct state *s = a;
 	int ret;
-	s->comp.next_in = map;
+	s->comp.next_in = (unsigned char *)map;
 	s->comp.avail_in = size;
 	s->comp.total_in = 0;
-	s->comp.next_out = out;
+	s->comp.next_out = (unsigned char *)out;
 	s->comp.avail_out = *outlen;
 	s->comp.total_out = 0;
 	ret = zlib_deflate(&s->comp, Z_FINISH);
@@ -174,9 +174,9 @@ static inline int d_zlib(char *out, size_t outlen, char *buf2, size_t size, void
 	struct state *s = a;
 	int ret;
 
-	s->de.next_in = out;
+	s->de.next_in = (unsigned char *)out;
 	s->de.avail_in = outlen;
-	s->de.next_out = buf2;
+	s->de.next_out = (unsigned char *)buf2;
 	s->de.avail_out = size;
 	s->de.total_in = 0;
 	s->de.total_out = 0;
