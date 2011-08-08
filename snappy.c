@@ -58,6 +58,8 @@
 #define to_host32(x) le32toh(x)
 #define from_host16(x) htole32(x)
 
+#define UINT_MAX 0xffffffffU
+
 #endif
 
 #define kuint32max 0xffffffff
@@ -1205,7 +1207,7 @@ out:
 
 int snappy_compress(const char *input,
 		    size_t input_length,
-		    char *compressed, size_t * compressed_length)
+		    char *compressed, size_t *compressed_length)
 {
 	struct source reader = {
 		.ptr = input,

@@ -88,6 +88,9 @@ int main(int ac, char **av)
 		test_fastlz(map, size, *av);
 #endif		
 
+#ifdef SNAPREF
+		test_snapref(map, size, *av);
+#endif
 		unmap_file(map, size);
 		
 	}

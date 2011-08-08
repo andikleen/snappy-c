@@ -45,7 +45,7 @@ void fuzzbuf(char *file, size_t size)
 	}
 }
 
-int runs1 = 1000;
+int runs1 = 5000;
 int runs2 = 100;
 	
 #define BENCH(name,names,fn,arg) \
@@ -76,7 +76,12 @@ void fuzzfile(char *fn)
 		perror(fn);
 		return;
 	}
-	
+
+#ifdef SNAPREF
+	printf("snappy-ref\n");
+	test_snapref(map, size, fn);
+#endif
+
 	printf("snappy\n");
 	test_snappy(map, size, fn);
 
@@ -100,9 +105,12 @@ void usage(void)
 
 int main(int ac, char **av)
 {
-	seed = time(0);
+	//seed = time(0);
+	seed = 1312816253;
 	printf("seed %u\n", seed);
 	srand(seed);
+
+	
 
 	while (*++av)
 		fuzzfile(*av);

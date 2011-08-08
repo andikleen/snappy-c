@@ -23,9 +23,9 @@ static inline int d_snappy(char *out, size_t outlen, char *buf2, size_t size, vo
 void test_snappy(char *map, size_t size, char *fn)
 {
 	int i;
-	size_t outlen;
+	size_t outlen = snappy_max_compressed_length(size);
 	int err;       
-	char *out = xmalloc(snappy_max_compressed_length(size));
+	char *out = xmalloc(outlen);
 	char *buf2 = xmalloc(size);
 
 	BENCH(snappy, "snappy", fn, NULL);
@@ -241,4 +241,33 @@ void test_fastlz(char *map, size_t size, char *fn)
 	free(buf2);
 }
 
+#endif
+
+#ifdef SNAPREF
+
+#include "snappy-c.h"
+
+static inline int c_snapref(char *map, size_t size, char *out, size_t *outlen, void *a)
+{
+	return snappyc_compress(map, size, out, outlen);
+}
+
+static inline int d_snapref(char *out, size_t outlen, char *buf2, size_t size, void *a)
+{
+	return snappyc_uncompress(out, outlen, buf2, &size);
+}
+
+void test_snapref(char *map, size_t size, char *fn)
+{
+	int i;
+	size_t outlen = snappy_max_compressed_length(size);
+	int err;       
+	char *out = xmalloc(outlen);
+	char *buf2 = xmalloc(size);
+
+	BENCH(snappy, "snapref", fn, NULL);
+
+	free(out);
+	free(buf2);
+}
 #endif
