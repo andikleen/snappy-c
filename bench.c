@@ -13,6 +13,7 @@
 #include "../comp/lzo/lzo.h"
 #include "../comp/lzf.h"
 #include "../comp/quicklz.h"
+#include "../comp/fastlz.h"
 #endif
 
 #ifdef SIMPLE_PMU
@@ -83,7 +84,7 @@ int compare(char *a, char *b, size_t size)
 	    if (o >= 0)							\
 		    printf("%s: final comparision failed at %d of %lu\n", names, o, size); \
        }								\
-       printf("%-6s: %s: %lu b: ratio %.02f: comp %2.02f uncomp %2.02f c/b\n", \
+       printf("%-6s: %s: %lu b: ratio %.02f: comp %3.02f uncomp %2.02f c/b\n", \
 	      names, basen(fn), (unsigned long)size,			\
 	      (double)outlen / size,					\
 	      (double)(total_comp / N) / size,				\
@@ -164,7 +165,7 @@ static inline int c_zlib(char *map, size_t size, char *out, size_t *outlen, void
 	if (ret != Z_OK) 
 		return ret;
 
-	//*outlen = s->comp.total_out;
+	*outlen = *outlen - s->comp.avail_out;
 	return 0;
 }
 
@@ -259,7 +260,6 @@ void test_lzf(char *map, size_t size, char *fn)
 	free(buf2);
 }
 
-
 static inline int c_quicklz(char *map, size_t size, char *out, size_t *outlen, void *a)
 {
 	if (qlz_compress(map, out, size, a) == 0)
@@ -292,6 +292,35 @@ void test_quicklz(char *map, size_t size, char *fn)
 	free(buf2);
 }
 
+
+static inline int c_fastlz(char *map, size_t size, char *out, size_t *outlen, void *a)
+{
+	*outlen = fastlz_compress(map, size, out);
+	return 0;
+}
+
+static inline int d_fastlz(char *out, size_t outlen, char *buf2, size_t size, void *a)
+{
+	if (fastlz_decompress(out, outlen, buf2, size) == 0)
+		return -1;
+	return 0;
+}
+
+void test_fastlz(char *map, size_t size, char *fn)
+{
+	int i;
+	int err;       
+	size_t outlen = size * 2;
+	char *out = xmalloc(outlen);
+	char *buf2 = xmalloc(size);
+
+	BENCH(fastlz, "fastlz", fn, NULL);
+
+	free(out);
+	free(buf2);
+}
+
+
 int main(int ac, char **av)
 {
 #ifdef SIMPLE_PMU
@@ -322,6 +351,7 @@ int main(int ac, char **av)
 		//test_zlib(map, size, *av, 5);
 		test_lzf(map, size, *av);
 		test_quicklz(map, size, *av);
+		test_fastlz(map, size, *av);
 #endif		
 
 		unmap_file(map, size);
