@@ -1,13 +1,13 @@
-/* 
+/*
  * C port of the snappy compressor from Google.
- * This is a very fast compressor with comparable compression to lzo. 
+ * This is a very fast compressor with comparable compression to lzo.
  * Works best on 64bit little-endian, but should be good on others too.
  * Ported by Andi Kleen.
  */
 
 /*
  * Copyright 2005 Google Inc. All Rights Reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
@@ -35,34 +35,60 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <errno.h>
-#include <string.h>
-#include <assert.h>
-#include <stdlib.h>
-#include "snappy.h"
-#include "snappy-int.h"
+/* TODO
+move allocations extra
+move working memory to allocation
+*/
 
-#ifndef __KERNEL__
-
-#include <endian.h>
-
-#define min_t(t,a,b) ((a) < (b) ? (a) : (b))	/* XXX */
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
-
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-#define __LITTLE_ENDIAN__ 1
+#ifdef __KERNEL__
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/snappy.h>
+#include <asm/unaligned.h>
 #else
-#define __BIG_ENDIAN__ 1
+#include "compat.h"
 #endif
 
-#define to_host32(x) le32toh(x)
-#define from_host16(x) htole32(x)
 
-#define UINT_MAX 0xffffffffU
+#define CHECK(cond) BUG_ON(!(cond))
+#define CHECK_LE(a, b) CHECK((a) <= (b))
+#define CHECK_GE(a, b) CHECK((a) >= (b))
+#define CHECK_EQ(a, b) CHECK((a) == (b))
+#define CHECK_NE(a, b) CHECK((a) != (b))
+#define CHECK_LT(a, b) CHECK((a) < (b))
+#define CHECK_GT(a, b) CHECK((a) > (b))
+
+#define UNALIGNED_LOAD16(_p) get_unaligned((u16 *)(_p))
+#define UNALIGNED_LOAD32(_p) get_unaligned((u32 *)(_p))
+#define UNALIGNED_LOAD64(_p) get_unaligned((u64 *)(_p))
+
+#define UNALIGNED_STORE16(_p, _val) put_unaligned(_val, (u16 *)(_p))
+#define UNALIGNED_STORE32(_p, _val) put_unaligned(_val, (u32 *)(_p))
+#define UNALIGNED_STORE64(_p, _val) put_unaligned(_val, (u64 *)(_p))
+
+#ifdef NDEBUG
+
+#define DCHECK(cond) do {} while(0)
+#define DCHECK_LE(a, b) do {} while(0)
+#define DCHECK_GE(a, b) do {} while(0)
+#define DCHECK_EQ(a, b) do {} while(0)
+#define DCHECK_NE(a, b) do {} while(0)
+#define DCHECK_LT(a, b) do {} while(0)
+#define DCHECK_GT(a, b) do {} while(0)
+
+#else
+
+#define DCHECK(cond) CHECK(cond)
+#define DCHECK_LE(a, b) CHECK_LE(a, b)
+#define DCHECK_GE(a, b) CHECK_GE(a, b)
+#define DCHECK_EQ(a, b) CHECK_EQ(a, b)
+#define DCHECK_NE(a, b) CHECK_NE(a, b)
+#define DCHECK_LT(a, b) CHECK_LT(a, b)
+#define DCHECK_GT(a, b) CHECK_GT(a, b)
 
 #endif
-
-#define kuint32max 0xffffffff
 
 static inline bool is_little_endian(void)
 {
@@ -72,27 +98,17 @@ static inline bool is_little_endian(void)
 	return false;
 }
 
-static inline void little_endian_store16(void *p, uint16 v)
-{
-	UNALIGNED_STORE16(p, from_host16(v));
-}
-
-static inline uint32 little_endian_load32(const void *p)
-{
-	return to_host32(UNALIGNED_LOAD32(p));
-}
-
-static inline int log2_floor(uint32 n)
+static inline int log2_floor(u32 n)
 {
 	return n == 0 ? -1 : 31 ^ __builtin_clz(n);
 }
 
-static inline int find_l_s_b_set_non_zero(uint32 n)
+static inline int find_lsb_set_non_zero(u32 n)
 {
 	return __builtin_ctz(n);
 }
 
-static inline int find_l_s_b_set_non_zero64(uint64 n)
+static inline int find_lsb_set_non_zero64(u64 n)
 {
 	return __builtin_ctzll(n);
 }
@@ -108,11 +124,11 @@ static inline int find_l_s_b_set_non_zero64(uint64 n)
  */
 static inline const char *varint_parse32_with_limit(const char *p,
 						    const char *l,
-						    uint32 * OUTPUT)
+						    u32 * OUTPUT)
 {
 	const unsigned char *ptr = (const unsigned char *)(p);
 	const unsigned char *limit = (const unsigned char *)(l);
-	uint32 b, result;
+	u32 b, result;
 
 	if (ptr >= limit)
 		return NULL;
@@ -155,7 +171,7 @@ done:
  *  EFFECTS    Encodes "v" into "ptr" and returns a pointer to the
  *            byte just past the last encoded byte.
  */
-static inline char *varint_encode32(char *sptr, uint32 v)
+static inline char *varint_encode32(char *sptr, u32 v)
 {
 	/* Operate on characters as unsigneds */
 	unsigned char *ptr = (unsigned char *)(sptr);
@@ -308,8 +324,8 @@ static inline void incremental_copy_fast_path(const char *src, char *op,
 	}
 }
 
-static inline bool writer_append_from_self(struct writer *w, uint32 offset,
-					   uint32 len)
+static inline bool writer_append_from_self(struct writer *w, u32 offset,
+					   u32 len)
 {
 	char *op = w->op;
 	const int space_left = w->op_limit - op;
@@ -317,7 +333,7 @@ static inline bool writer_append_from_self(struct writer *w, uint32 offset,
 	if (op - w->base <= offset - 1u)	/* -1u catches offset==0 */
 		return false;
 	if (len <= 16 && offset >= 8 && space_left >= 16) {
-		/* Fast path, used for the majority (70-80%) of dynamic 
+		/* Fast path, used for the majority (70-80%) of dynamic
 		 * invocations. */
 		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(op - offset));
 		UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(op - offset + 8));
@@ -336,13 +352,13 @@ static inline bool writer_append_from_self(struct writer *w, uint32 offset,
 	return true;
 }
 
-static inline bool writer_append(struct writer *w, const char *ip, uint32 len,
+static inline bool writer_append(struct writer *w, const char *ip, u32 len,
 				 bool allow_fast_path)
 {
 	char *op = w->op;
 	const int space_left = w->op_limit - op;
 	if (allow_fast_path && len <= 16 && space_left >= 16) {
-		/* Fast path, used for the majority (about 90%) of dynamic 
+		/* Fast path, used for the majority (about 90%) of dynamic
 		 * invocations. */
 		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(ip));
 		UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(ip + 8));
@@ -356,8 +372,8 @@ static inline bool writer_append(struct writer *w, const char *ip, uint32 len,
 }
 
 struct working_memory {
-	uint16 small_table[1 << 10];	/* 2KB */
-	uint16 *large_table;	/* Allocated only when needed */
+	u16 small_table[1 << 10];	/* 2KB */
+	u16 *large_table;	/* Allocated only when needed */
 };
 
 /*
@@ -367,13 +383,13 @@ struct working_memory {
  * input. Of course, it doesn't hurt if the hash function is reasonably fast
  * either, as it gets called a lot.
  */
-static inline uint32 hash_bytes(uint32 bytes, int shift)
+static inline u32 hash_bytes(u32 bytes, int shift)
 {
-	uint32 kmul = 0x1e35a7bd;
+	u32 kmul = 0x1e35a7bd;
 	return (bytes * kmul) >> shift;
 }
 
-static inline uint32 hash(const char *p, int shift)
+static inline u32 hash(const char *p, int shift)
 {
 	return hash_bytes(UNALIGNED_LOAD32(p), shift);
 }
@@ -404,6 +420,7 @@ size_t snappy_max_compressed_length(size_t source_len)
 {
 	return 32 + source_len + source_len / 6;
 }
+EXPORT_SYMBOL(snappy_max_compressed_length);
 
 enum {
 	LITERAL = 0,
@@ -450,8 +467,8 @@ static inline char *emit_literal(char *op,
 			n >>= 8;
 			count++;
 		}
-		assert(count >= 1);
-		assert(count <= 4);
+		DCHECK(count >= 1);
+		DCHECK(count <= 4);
 		*base = LITERAL | ((59 + count) << 2);
 	}
 	memcpy(op, literal, len);
@@ -466,14 +483,14 @@ static inline char *emit_copy_less_than64(char *op, int offset, int len)
 
 	if ((len < 12) && (offset < 2048)) {
 		int len_minus_4 = len - 4;
-		assert(len_minus_4 < 8);	/* Must fit in 3 bits */
+		DCHECK(len_minus_4 < 8);	/* Must fit in 3 bits */
 		*op++ =
 		    COPY_1_BYTE_OFFSET | ((len_minus_4) << 2) | ((offset >> 8)
 								 << 5);
 		*op++ = offset & 0xff;
 	} else {
 		*op++ = COPY_2_BYTE_OFFSET | ((len - 1) << 2);
-		little_endian_store16(op, offset);
+		put_unaligned_le16(offset, op);
 		op += 2;
 	}
 	return op;
@@ -481,16 +498,16 @@ static inline char *emit_copy_less_than64(char *op, int offset, int len)
 
 static inline char *emit_copy(char *op, int offset, int len)
 {
-	/* 
-	 * Emit 64 byte copies but make sure to keep at least four bytes 
-  	 * reserved 
+	/*
+	 * Emit 64 byte copies but make sure to keep at least four bytes
+	 * reserved
 	 */
 	while (len >= 68) {
 		op = emit_copy_less_than64(op, offset, 64);
 		len -= 64;
 	}
 
-	/* 
+	/*
 	 * Emit an extra 60 byte copy if have too much data to fit in
 	 * one copy
 	 */
@@ -506,7 +523,7 @@ static inline char *emit_copy(char *op, int offset, int len)
 
 bool snappy_uncompressed_length(const char *start, size_t n, size_t * result)
 {
-	uint32 v = 0;
+	u32 v = 0;
 	const char *limit = start + n;
 	if (varint_parse32_with_limit(start, limit, &v) != NULL) {
 		*result = v;
@@ -528,24 +545,26 @@ bool snappy_uncompressed_length(const char *start, size_t n, size_t * result)
  * compression, and if the input is short, we won't need that
  * many hash table entries anyway.
  */
-static uint16 *get_hash_table(struct working_memory *wm, size_t input_size,
+static u16 *get_hash_table(struct working_memory *wm, size_t input_size,
 			      int *table_size)
 {
 	int htsize = 256;
 
-	assert(kmax_hash_table_size >= 256);
+	DCHECK(kmax_hash_table_size >= 256);
 	while (htsize < kmax_hash_table_size && htsize < input_size)
 		htsize <<= 1;
 	CHECK_EQ(0, htsize & (htsize - 1));
 	CHECK_LE(htsize, kmax_hash_table_size);
 
-	uint16 *table;
+	u16 *table;
 	if (htsize <= ARRAY_SIZE(wm->small_table)) {
 		table = wm->small_table;
 	} else {
 		if (wm->large_table == NULL) {
+			/* XXX vmalloc */
 			wm->large_table =
-			    malloc(sizeof(uint16) * kmax_hash_table_size);
+				kmalloc(sizeof(u16) * kmax_hash_table_size,
+					GFP_NOFS);
 			if (!wm->large_table)
 				return NULL;
 		}
@@ -559,7 +578,7 @@ static uint16 *get_hash_table(struct working_memory *wm, size_t input_size,
 
 /*
  * Return the largest n such that
- * 
+ *
  *   s1[0,n-1] == s2[0,n-1]
  *   and n <= (s2_limit - s2).
  *
@@ -597,10 +616,10 @@ static inline int find_match_length(const char *s1,
 			 * and newer, and we expect AMD's bsf
 			 * instruction to improve.
 			 */
-			uint64 x =
+			u64 x =
 			    UNALIGNED_LOAD64(s2) ^ UNALIGNED_LOAD64(s1 +
 								    matched);
-			int matching_bits = find_l_s_b_set_non_zero64(x);
+			int matching_bits = find_lsb_set_non_zero64(x);
 			matched += matching_bits >> 3;
 			return matched;
 		}
@@ -629,9 +648,9 @@ static inline int find_match_length(const char *s1,
 		matched += 4;
 	}
 	if (is_little_endian() && s2 <= s2_limit - 4) {
-		uint32 x =
+		u32 x =
 		    UNALIGNED_LOAD32(s2) ^ UNALIGNED_LOAD32(s1 + matched);
-		int matching_bits = find_l_s_b_set_non_zero(x);
+		int matching_bits = find_lsb_set_non_zero(x);
 		matched += matching_bits >> 3;
 	} else {
 		while ((s2 < s2_limit) && (s1[matched] == *s2)) {
@@ -644,13 +663,13 @@ static inline int find_match_length(const char *s1,
 #endif
 
 /*
- * For 0 <= offset <= 4, GetUint32AtOffset(UNALIGNED_LOAD64(p), offset) will
+ * For 0 <= offset <= 4, GetU32AtOffset(UNALIGNED_LOAD64(p), offset) will
  *  equal UNALIGNED_LOAD32(p + offset).  Motivation: On x86-64 hardware we have
  * empirically found that overlapping loads such as
  *  UNALIGNED_LOAD32(p) ... UNALIGNED_LOAD32(p+1) ... UNALIGNED_LOAD32(p+2)
- * are slower than UNALIGNED_LOAD64(p) followed by shifts and casts to uint32.
+ * are slower than UNALIGNED_LOAD64(p) followed by shifts and casts to u32.
  */
-static inline uint32 get_uint32_at_offset(uint64 v, int offset)
+static inline u32 get_u32_at_offset(u64 v, int offset)
 {
 	DCHECK(0 <= offset && offset <= 4);
 	return v >> (is_little_endian()? 8 * offset : 32 - 8 * offset);
@@ -672,7 +691,7 @@ static inline uint32 get_uint32_at_offset(uint64 v, int offset)
 
 static char *compress_fragment(const char *const input,
 			       const size_t input_size,
-			       char *op, uint16 * table, const int table_size)
+			       char *op, u16 *table, const int table_size)
 {
 	/* "ip" is the input pointer, and "op" is the output pointer. */
 	const char *ip = input;
@@ -693,7 +712,7 @@ static char *compress_fragment(const char *const input,
 	if (likely(input_size >= kinput_margin_bytes)) {
 		const char *ip_limit = input + input_size - kinput_margin_bytes;
 
-		uint32 next_hash;
+		u32 next_hash;
 		for (next_hash = hash(++ip, shift);;) {
 			DCHECK_LT(next_emit, ip);
 /*
@@ -723,15 +742,15 @@ static char *compress_fragment(const char *const input,
  * last match; dividing it by 32 (ie. right-shifting by five) gives the
  * number of bytes to move ahead for each iteration.
  */
-			uint32 skip = 32;
+			u32 skip = 32;
 
 			const char *next_ip = ip;
 			const char *candidate;
 			do {
 				ip = next_ip;
-				uint32 hval = next_hash;
+				u32 hval = next_hash;
 				DCHECK_EQ(hval, hash(ip, shift));
-				uint32 bytes_between_hash_lookups = skip++ >> 5;
+				u32 bytes_between_hash_lookups = skip++ >> 5;
 				next_ip = ip + bytes_between_hash_lookups;
 				if (unlikely(next_ip > ip_limit)) {
 					goto emit_remainder;
@@ -763,8 +782,8 @@ static char *compress_fragment(const char *const input,
  * by proceeding to the next iteration of the main loop.  We also can exit
  * this loop via goto if we get close to exhausting the input.
  */
-			uint64 input_bytes = 0;
-			uint32 candidate_bytes = 0;
+			u64 input_bytes = 0;
+			u32 candidate_bytes = 0;
 
 			do {
 /*
@@ -789,21 +808,21 @@ static char *compress_fragment(const char *const input,
 					goto emit_remainder;
 				}
 				input_bytes = UNALIGNED_LOAD64(insert_tail);
-				uint32 prev_hash =
-				    hash_bytes(get_uint32_at_offset
+				u32 prev_hash =
+				    hash_bytes(get_u32_at_offset
 					       (input_bytes, 0), shift);
 				table[prev_hash] = ip - baseip - 1;
-				uint32 cur_hash =
-				    hash_bytes(get_uint32_at_offset
+				u32 cur_hash =
+				    hash_bytes(get_u32_at_offset
 					       (input_bytes, 1), shift);
 				candidate = baseip + table[cur_hash];
 				candidate_bytes = UNALIGNED_LOAD32(candidate);
 				table[cur_hash] = ip - baseip;
-			} while (get_uint32_at_offset(input_bytes, 1) ==
+			} while (get_u32_at_offset(input_bytes, 1) ==
 				 candidate_bytes);
 
 			next_hash =
-			    hash_bytes(get_uint32_at_offset(input_bytes, 2),
+			    hash_bytes(get_u32_at_offset(input_bytes, 2),
 				       shift);
 			++ip;
 		}
@@ -824,7 +843,7 @@ emit_remainder:
  */
 
 /* Mapping from i in range [0,4] to a mask to extract the bottom 8*i bits */
-static const uint32 wordmask[] = {
+static const u32 wordmask[] = {
 	0u, 0xffu, 0xffffu, 0xffffffu, 0xffffffffu
 };
 
@@ -841,7 +860,7 @@ static const uint32 wordmask[] = {
  *      (1) Extracting a byte is faster than a bit-field
  *      (2) It properly aligns copy offset so we do not need a <<8
  */
-static const uint16 char_table[256] = {
+static const u16 char_table[256] = {
 	0x0001, 0x0804, 0x1001, 0x2001, 0x0002, 0x0805, 0x1002, 0x2002,
 	0x0003, 0x0806, 0x1003, 0x2003, 0x0004, 0x0807, 0x1004, 0x2004,
 	0x0005, 0x0808, 0x1005, 0x2005, 0x0006, 0x0809, 0x1006, 0x2006,
@@ -880,7 +899,7 @@ struct snappy_decompressor {
 	struct source *reader;	/* Underlying source of bytes to decompress */
 	const char *ip;		/* Points to next buffered byte */
 	const char *ip_limit;	/* Points just past buffered bytes */
-	uint32 peeked;		/* Bytes peeked from reader (need to skip) */
+	u32 peeked;		/* Bytes peeked from reader (need to skip) */
 	bool eof;		/* Hit end of input without an error? */
 	char scratch[5];	/* Temporary buffer for PeekFast() boundaries */
 };
@@ -906,14 +925,14 @@ static void exit_snappy_decompressor(struct snappy_decompressor *d)
  * On failure, returns false.
  */
 static bool read_uncompressed_length(struct snappy_decompressor *d,
-				     uint32 * result)
+				     u32 *result)
 {
 	DCHECK(d->ip == NULL);	/*
 				 * Must not have read anything yet
 				 * Length is encoded in 1..5 bytes
 				 */
 	*result = 0;
-	uint32 shift = 0;
+	u32 shift = 0;
 	while (true) {
 		if (shift >= 32)
 			return false;
@@ -923,7 +942,7 @@ static bool read_uncompressed_length(struct snappy_decompressor *d,
 			return false;
 		const unsigned char c = *(const unsigned char *)(ip);
 		skip(d->reader, 1);
-		*result |= (uint32) (c & 0x7f) << shift;
+		*result |= (u32) (c & 0x7f) << shift;
 		if (c < 128) {
 			break;
 		}
@@ -952,15 +971,15 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 		}
 
 		const unsigned char c = *(const unsigned char *)(ip++);
-		const uint32 entry = char_table[c];
-		const uint32 trailer =
-		    little_endian_load32(ip) & wordmask[entry >> 11];
+		const u32 entry = char_table[c];
+		const u32 trailer =
+		    get_unaligned_le32(ip) & wordmask[entry >> 11];
 		ip += entry >> 11;
-		const uint32 length = entry & 0xff;
+		const u32 length = entry & 0xff;
 
 		if ((c & 0x3) == LITERAL) {
-			uint32 literal_length = length + trailer;
-			uint32 avail = d->ip_limit - ip;
+			u32 literal_length = length + trailer;
+			u32 avail = d->ip_limit - ip;
 			while (avail < literal_length) {
 				bool allow_fast_path = (avail >= 16);
 				if (!writer_append
@@ -977,7 +996,7 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 				d->ip_limit = ip + avail;
 			}
 			bool allow_fast_path = (avail >= 16);
-			if (!writer_append(writer, ip, literal_length, 
+			if (!writer_append(writer, ip, literal_length,
 					   allow_fast_path))
 				return;
 			ip += literal_length;
@@ -988,8 +1007,9 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 			 * copy_offset (since the bit-field starts at
 			 * bit 8).
 			 */
-			const uint32 copy_offset = entry & 0x700;
-			if (!writer_append_from_self(writer, copy_offset + trailer, 
+			const u32 copy_offset = entry & 0x700;
+			if (!writer_append_from_self(writer,
+						     copy_offset + trailer,
 						     length))
 				return;
 		}
@@ -1016,12 +1036,12 @@ static bool refill_tag(struct snappy_decompressor *d)
 	/* Read the tag character */
 	DCHECK_LT(ip, d->ip_limit);
 	const unsigned char c = *(const unsigned char *)(ip);
-	const uint32 entry = char_table[c];
-	const uint32 needed = (entry >> 11) + 1;	/* +1 byte for 'c' */
+	const u32 entry = char_table[c];
+	const u32 needed = (entry >> 11) + 1;	/* +1 byte for 'c' */
 	DCHECK_LE(needed, sizeof(d->scratch));
 
 	/* Read more bytes from reader if needed */
-	uint32 nbuf = d->ip_limit - ip;
+	u32 nbuf = d->ip_limit - ip;
 
 	if (nbuf < needed) {
 		/*
@@ -1038,7 +1058,7 @@ static bool refill_tag(struct snappy_decompressor *d)
 			const char *src = peek(d->reader, &length);
 			if (length == 0)
 				return false;
-			uint32 to_add = min_t(uint32_t, needed - nbuf, length);
+			u32 to_add = min_t(u32, needed - nbuf, length);
 			memcpy(d->scratch + nbuf, src, to_add);
 			nbuf += to_add;
 			skip(d->reader, to_add);
@@ -1063,22 +1083,22 @@ static bool refill_tag(struct snappy_decompressor *d)
 	return true;
 }
 
-/* 
- * Read the uncompressed length from the front of the compressed 
- * input 
- */
 static int internal_uncompress(struct source *r,
-			       struct writer *writer, uint32 max_len)
+			       struct writer *writer, u32 max_len)
 {
 	struct snappy_decompressor decompressor;
-	uint32 uncompressed_len = 0;
+	u32 uncompressed_len = 0;
 
 	init_snappy_decompressor(&decompressor, r);
 
+	/*
+	 * Read the uncompressed length from the front of the
+	 * compressed input
+	 */
 	if (!read_uncompressed_length(&decompressor, &uncompressed_len))
 		return -EIO;
 	/* Protect against possible DoS attack */
-	if ((uint64) (uncompressed_len) > max_len)
+	if ((u64) (uncompressed_len) > max_len)
 		return -EIO;
 
 	writer_set_expected_length(writer, uncompressed_len);
@@ -1158,7 +1178,7 @@ static inline int compress(struct source *reader, struct sink *writer)
 
 		/* Get encoding table for compression */
 		int table_size;
-		uint16 *table = get_hash_table(&wmem, num_to_read, &table_size);
+		u16 *table = get_hash_table(&wmem, num_to_read, &table_size);
 		if (!table) {
 			err = -ENOMEM;
 			goto out;
@@ -1198,9 +1218,9 @@ static inline int compress(struct source *reader, struct sink *writer)
 
 	err = 0;
 out:
-	free(wmem.large_table);
-	free(scratch);
-	free(scratch_output);
+	kfree(wmem.large_table);
+	kfree(scratch);
+	kfree(scratch_output);
 
 	return err;
 }
@@ -1222,6 +1242,7 @@ int snappy_compress(const char *input,
 	*compressed_length = (writer.dest - compressed);
 	return err;
 }
+EXPORT_SYMBOL(snappy_compress);
 
 bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 {
@@ -1235,3 +1256,4 @@ bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 	};
 	return internal_uncompress(&reader, &output, 0xffffffff);
 }
+EXPORT_SYMBOL(snappy_uncompress);

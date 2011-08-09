@@ -1,4 +1,4 @@
-CFLAGS := -Wall -g -O2 -DNDEBUG=1 
+CFLAGS := -Wall -g # -O2 -DNDEBUG=1 
 
 CFLAGS += -m32
 LDFLAGS += -m32
