@@ -35,11 +35,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* TODO
-move allocations extra
-move working memory to allocation
-*/
-
 #ifdef __KERNEL__
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -48,17 +43,18 @@ move working memory to allocation
 #include <linux/snappy.h>
 #include <asm/unaligned.h>
 #else
+#include "snappy.h"
 #include "compat.h"
 #endif
 
-
-#define CHECK(cond) BUG_ON(!(cond))
-#define CHECK_LE(a, b) CHECK((a) <= (b))
-#define CHECK_GE(a, b) CHECK((a) >= (b))
-#define CHECK_EQ(a, b) CHECK((a) == (b))
-#define CHECK_NE(a, b) CHECK((a) != (b))
-#define CHECK_LT(a, b) CHECK((a) < (b))
-#define CHECK_GT(a, b) CHECK((a) > (b))
+#define CRASH_UNLESS(x) BUG_ON(!(x))
+#define CHECK(cond) CRASH_UNLESS(cond)
+#define CHECK_LE(a, b) CRASH_UNLESS((a) <= (b))
+#define CHECK_GE(a, b) CRASH_UNLESS((a) >= (b))
+#define CHECK_EQ(a, b) CRASH_UNLESS((a) == (b))
+#define CHECK_NE(a, b) CRASH_UNLESS((a) != (b))
+#define CHECK_LT(a, b) CRASH_UNLESS((a) < (b))
+#define CHECK_GT(a, b) CRASH_UNLESS((a) > (b))
 
 #define UNALIGNED_LOAD16(_p) get_unaligned((u16 *)(_p))
 #define UNALIGNED_LOAD32(_p) get_unaligned((u32 *)(_p))
@@ -234,6 +230,11 @@ static inline void append(struct sink *s, const char *data, size_t n)
 	s->dest += n;
 }
 
+static inline void *sink_peek(struct sink *s, size_t n)
+{
+	return s->dest;
+}
+
 struct writer {
 	char *base;
 	char *op;
@@ -370,11 +371,6 @@ static inline bool writer_append(struct writer *w, const char *ip, u32 len,
 	w->op = op + len;
 	return true;
 }
-
-struct working_memory {
-	u16 small_table[1 << 10];	/* 2KB */
-	u16 *large_table;	/* Allocated only when needed */
-};
 
 /*
  * Any hash function will produce a valid compressed bitstream, but a good
@@ -521,6 +517,14 @@ static inline char *emit_copy(char *op, int offset, int len)
 	return op;
 }
 
+/**
+ * snappy_uncompressed_length - return length of uncompressed output.
+ * @start: compressed buffer
+ * @n: length of compressed buffer.
+ * @result: Write the length of the uncompressed output here.
+ *
+ * Returns true when successfull, otherwise false.
+ */
 bool snappy_uncompressed_length(const char *start, size_t n, size_t * result)
 {
 	u32 v = 0;
@@ -532,6 +536,7 @@ bool snappy_uncompressed_length(const char *start, size_t n, size_t * result)
 		return false;
 	}
 }
+EXPORT_SYMBOL(snappy_uncompressed_length);
 
 #define kblock_log 15
 #define kblock_size (1 << kblock_log)
@@ -545,7 +550,7 @@ bool snappy_uncompressed_length(const char *start, size_t n, size_t * result)
  * compression, and if the input is short, we won't need that
  * many hash table entries anyway.
  */
-static u16 *get_hash_table(struct working_memory *wm, size_t input_size,
+static u16 *get_hash_table(struct snappy_env *env, size_t input_size,
 			      int *table_size)
 {
 	int htsize = 256;
@@ -557,19 +562,7 @@ static u16 *get_hash_table(struct working_memory *wm, size_t input_size,
 	CHECK_LE(htsize, kmax_hash_table_size);
 
 	u16 *table;
-	if (htsize <= ARRAY_SIZE(wm->small_table)) {
-		table = wm->small_table;
-	} else {
-		if (wm->large_table == NULL) {
-			/* XXX vmalloc */
-			wm->large_table =
-				kmalloc(sizeof(u16) * kmax_hash_table_size,
-					GFP_NOFS);
-			if (!wm->large_table)
-				return NULL;
-		}
-		table = wm->large_table;
-	}
+	table = env->hash_table;
 
 	*table_size = htsize;
 	memset(table, 0, htsize * sizeof(*table));
@@ -691,7 +684,7 @@ static inline u32 get_u32_at_offset(u64 v, int offset)
 
 static char *compress_fragment(const char *const input,
 			       const size_t input_size,
-			       char *op, u16 *table, const int table_size)
+			       char *op, u16 * table, const int table_size)
 {
 	/* "ip" is the input pointer, and "op" is the output pointer. */
 	const char *ip = input;
@@ -710,7 +703,8 @@ static char *compress_fragment(const char *const input,
 	const int kinput_margin_bytes = 15;
 
 	if (likely(input_size >= kinput_margin_bytes)) {
-		const char *ip_limit = input + input_size - kinput_margin_bytes;
+		const char *ip_limit = input + input_size -
+			kinput_margin_bytes;
 
 		u32 next_hash;
 		for (next_hash = hash(++ip, shift);;) {
@@ -791,9 +785,9 @@ static char *compress_fragment(const char *const input,
  *  "literal bytes" prior to ip.
  */
 				const char *base = ip;
-				int matched =
-				    4 + find_match_length(candidate + 4, ip + 4,
-							  ip_end);
+				int matched = 4 +
+				    find_match_length(candidate + 4, ip + 4,
+						      ip_end);
 				ip += matched;
 				int offset = base - candidate;
 				DCHECK_EQ(0, memcmp(base, candidate, matched));
@@ -901,7 +895,7 @@ struct snappy_decompressor {
 	const char *ip_limit;	/* Points just past buffered bytes */
 	u32 peeked;		/* Bytes peeked from reader (need to skip) */
 	bool eof;		/* Hit end of input without an error? */
-	char scratch[5];	/* Temporary buffer for PeekFast() boundaries */
+	char scratch[5];	/* Temporary buffer for peekfast boundaries */
 };
 
 static void
@@ -925,7 +919,7 @@ static void exit_snappy_decompressor(struct snappy_decompressor *d)
  * On failure, returns false.
  */
 static bool read_uncompressed_length(struct snappy_decompressor *d,
-				     u32 *result)
+				     u32 * result)
 {
 	DCHECK(d->ip == NULL);	/*
 				 * Must not have read anything yet
@@ -1091,10 +1085,6 @@ static int internal_uncompress(struct source *r,
 
 	init_snappy_decompressor(&decompressor, r);
 
-	/*
-	 * Read the uncompressed length from the front of the
-	 * compressed input
-	 */
 	if (!read_uncompressed_length(&decompressor, &uncompressed_len))
 		return -EIO;
 	/* Protect against possible DoS attack */
@@ -1110,7 +1100,8 @@ static int internal_uncompress(struct source *r,
 	return (decompressor.eof && writer_check_length(writer)) ? 0 : -EIO;
 }
 
-static inline int compress(struct source *reader, struct sink *writer)
+static inline int compress(struct snappy_env *env, struct source *reader,
+			   struct sink *writer)
 {
 	int err;
 	size_t written = 0;
@@ -1121,10 +1112,7 @@ static inline int compress(struct source *reader, struct sink *writer)
 	append(writer, ulength, p - ulength);
 	written += (p - ulength);
 
-	struct working_memory wmem;
-	wmem.large_table = NULL;
-	char *scratch = NULL;
-	char *scratch_output = NULL;
+	char *scratch = env->scratch;
 
 	while (N > 0) {
 		/* Get next block to compress (without copying if possible) */
@@ -1143,28 +1131,13 @@ static inline int compress(struct source *reader, struct sink *writer)
 			pending_advance = num_to_read;
 			fragment_size = num_to_read;
 		} else {
-			/* Read into scratch buffer */
-			if (scratch == NULL) {
-				/*
-				 * If this is the last iteration, we
-				 * want to allocate N bytes of space,
-				 * otherwise the max possible
-				 * kBlockSize space.  num_to_read
-				 * contains exactly the correct value
-				 */
-				scratch = malloc(num_to_read);
-				if (!scratch) {
-					err = -ENOMEM;
-					goto out;
-				}
-			}
 			memcpy(scratch, fragment, bytes_read);
 			skip(reader, bytes_read);
 
 			while (bytes_read < num_to_read) {
 				fragment = peek(reader, &fragment_size);
 				size_t n =
-				    min_t(size_t >, fragment_size,
+				    min_t(size_t, fragment_size,
 					  num_to_read - bytes_read);
 				memcpy(scratch + bytes_read, fragment, n);
 				bytes_read += n;
@@ -1178,35 +1151,22 @@ static inline int compress(struct source *reader, struct sink *writer)
 
 		/* Get encoding table for compression */
 		int table_size;
-		u16 *table = get_hash_table(&wmem, num_to_read, &table_size);
-		if (!table) {
-			err = -ENOMEM;
-			goto out;
-		}
+		u16 *table = get_hash_table(env, num_to_read, &table_size);
 
 		/* Compress input_fragment and append to dest */
 		const int max_output =
 		    snappy_max_compressed_length(num_to_read);
 
-		/*
-		 * Need a scratch buffer for the output, in case the byte sink doesn't
-		 * have room for us directly.
-		 */
-		if (scratch_output == NULL) {
-			scratch_output = malloc(max_output);
-			if (!scratch_output) {
-				err = -ENOMEM;
-				goto out;
-			}
-
-		} else {
+		char *dest;
+		dest = sink_peek(writer, max_output);
+		if (!dest) {
 			/*
-			 * Since we encode kBlockSize regions followed by a region
-			 * which is <= kBlockSize in length, a previously allocated
-			 * scratch_output[] region is big enough for this iteration.
+			 * Need a scratch buffer for the output,
+			 * because the byte sink doesn't have enough
+			 * in one piece.
 			 */
+			dest = env->scratch_output;
 		}
-		char *dest = scratch_output;
 		char *end = compress_fragment(fragment, fragment_size,
 					      dest, table, table_size);
 		append(writer, dest, end - dest);
@@ -1218,14 +1178,28 @@ static inline int compress(struct source *reader, struct sink *writer)
 
 	err = 0;
 out:
-	kfree(wmem.large_table);
-	kfree(scratch);
-	kfree(scratch_output);
-
 	return err;
 }
 
-int snappy_compress(const char *input,
+/**
+ * snappy_compress - Compress a buffer using the snappy compressor.
+ * @env: Preallocated environment
+ * @input: Input buffer
+ * @input_length: Length of input_buffer
+ * @compressed: Output buffer for compressed data
+ * @compressed_length: The real length of the output written here.
+ *
+ * Return 0 on success, otherwise an negative error code.
+ *
+ * The output buffer must be at least
+ * snappy_max_compressed_length(input_length) bytes long.
+ *
+ * Requires a preallocated environment from snappy_init_env.
+ * The environment does not keep state over individual calls
+ * of this function, just preallocates the memory.
+ */
+int snappy_compress(struct snappy_env *env,
+		    const char *input,
 		    size_t input_length,
 		    char *compressed, size_t *compressed_length)
 {
@@ -1236,7 +1210,7 @@ int snappy_compress(const char *input,
 	struct sink writer = {
 		.dest = compressed,
 	};
-	int err = compress(&reader, &writer);
+	int err = compress(env, &reader, &writer);
 
 	/* Compute how many bytes were added */
 	*compressed_length = (writer.dest - compressed);
@@ -1244,6 +1218,17 @@ int snappy_compress(const char *input,
 }
 EXPORT_SYMBOL(snappy_compress);
 
+/**
+ * snappy_uncompress - Uncompress a snappy compressed buffer
+ * @compressed: Input buffer with compressed data
+ * @n: length of compressed buffer
+ * @uncompressed: buffer for uncompressed data
+ *
+ * The uncompressed data buffer must be at least
+ * snappy_uncompressed_length(compressed) bytes long.
+ *
+ * Returns true when successfull, otherwise false.
+ */
 bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 {
 	struct source reader = {
@@ -1257,3 +1242,39 @@ bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 	return internal_uncompress(&reader, &output, 0xffffffff);
 }
 EXPORT_SYMBOL(snappy_uncompress);
+
+/**
+ * snappy_init_env - Allocate snappy compression environment
+ * @env: Environment to preallocate
+ *
+ * Returns 0 on success, otherwise negative errno.
+ * Must run in process context.
+ */
+int snappy_init_env(struct snappy_env *env)
+{
+	size_t len = kblock_size + sizeof(u16) * kmax_hash_table_size +
+		snappy_max_compressed_length(kblock_size);
+
+	env->hash_table = vmalloc(len);
+	if (!env->hash_table)
+		return -ENOMEM;
+	env->scratch = (char *)env->hash_table +
+		sizeof(u16)*kmax_hash_table_size;
+	env->scratch_output = (char *)env->scratch +
+		kblock_size;
+	return 0;
+}
+EXPORT_SYMBOL(snappy_init_env);
+
+/**
+ * snappy_free_env - Free an snappy compression environment
+ * @env: Environment to free.
+ *
+ * Must run in process context.
+ */
+void snappy_free_env(struct snappy_env *env)
+{
+	vfree(env->hash_table);
+	memset(&env, 0, sizeof(struct snappy_env));
+}
+EXPORT_SYMBOL(snappy_free_env);

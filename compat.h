@@ -13,13 +13,8 @@
 #define put_unaligned(v,x) (*(x) = (v))
 #define put_unaligned_le16(v,x) (*(u16 *)(x) = htole16(v))
 
-#define kmalloc(x,y) malloc(x)
-#define kfree(x) free(x)
-
-typedef unsigned char u8;
-typedef unsigned short u16;
-typedef unsigned u32;
-typedef unsigned long long u64;
+#define vmalloc(x) malloc(x)
+#define vfree(x) free(x)
 
 #define EXPORT_SYMBOL(x)
 

@@ -12,7 +12,7 @@
 
 static inline int c_snappy(char *map, size_t size, char *out, size_t *outlen, void *a)
 {
-	return snappy_compress(map, size, out, outlen);
+	return snappy_compress((struct snappy_env *)a, map, size, out, outlen);
 }
 
 static inline int d_snappy(char *out, size_t outlen, char *buf2, size_t size, void *a)
@@ -28,7 +28,10 @@ void test_snappy(char *map, size_t size, char *fn)
 	char *out = xmalloc(outlen);
 	char *buf2 = xmalloc(size);
 
-	BENCH(snappy, "snappy", fn, NULL);
+	struct snappy_env env;
+	snappy_init_env(&env);
+
+	BENCH(snappy, "snappy", fn, &env);
 
 	free(out);
 	free(buf2);

@@ -10,6 +10,8 @@
 int main(int ac, char **av)
 {
 	int failed = 0;
+	struct snappy_env env;
+	snappy_init_env(&env);
 
 	while (*++av) { 
 		size_t size;
@@ -27,7 +29,7 @@ int main(int ac, char **av)
 		char *out = xmalloc(snappy_max_compressed_length(size));
 		char *buf2 = xmalloc(size);
 
-		err = snappy_compress(map, size, out, &outlen);		
+		err = snappy_compress(&env, map, size, out, &outlen);		
 		if (err) {
 			failed = 1;
 			printf("compression of %s failed: %d\n", *av, err);
