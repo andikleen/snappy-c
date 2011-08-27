@@ -24,11 +24,12 @@ OTHER := ../comp/lzo.o ../comp/zlib.o ../comp/lzf.o ../comp/quicklz.o \
 	 ../comp/fastlz.o
 
 # incompatible with 32bit
-SNAPREF_BASE := ../../src/snappy-1.0.3
-SNAPREF_FL := -I ${SNAPREF_BASE} -D SNAPREF
-SNAPREF := ${SNAPREF_BASE}/snappy-c.o ${SNAPREF_BASE}/snappy.o \
-           ${SNAPREF_BASE}/snappy-sinksource.o \
-           ${SNAPREF_BASE}/snappy-stubs-internal.o \
+# broken due to namespace collision
+#SNAPREF_BASE := ../../src/snappy-1.0.3
+#SNAPREF_FL := -I ${SNAPREF_BASE} -D SNAPREF
+#SNAPREF := ${SNAPREF_BASE}/snappy-c.o ${SNAPREF_BASE}/snappy.o \
+#           ${SNAPREF_BASE}/snappy-sinksource.o \
+#           ${SNAPREF_BASE}/snappy-stubs-internal.o \
 LDFLAGS += -lstdc++
 
 fuzzer.o: CFLAGS += -D COMP ${SNAPREF_FL}
