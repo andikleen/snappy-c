@@ -1252,16 +1252,14 @@ EXPORT_SYMBOL(snappy_uncompress);
  */
 int snappy_init_env(struct snappy_env *env)
 {
-	size_t len = kblock_size + sizeof(u16) * kmax_hash_table_size +
-		snappy_max_compressed_length(kblock_size);
-
-	env->hash_table = vmalloc(len);
-	if (!env->hash_table)
+	env->hash_table = vmalloc(sizeof(u16) * kmax_hash_table_size);
+	env->scratch = vmalloc(kblock_size);
+	env->scratch_output = 
+		vmalloc(snappy_max_compressed_length(kblock_size));
+	if (!env->hash_table || !env->scratch || !env->scratch_output) {
+		snappy_free_env(env);
 		return -ENOMEM;
-	env->scratch = (char *)env->hash_table +
-		sizeof(u16)*kmax_hash_table_size;
-	env->scratch_output = (char *)env->scratch +
-		kblock_size;
+	}
 	return 0;
 }
 EXPORT_SYMBOL(snappy_init_env);
@@ -1275,6 +1273,8 @@ EXPORT_SYMBOL(snappy_init_env);
 void snappy_free_env(struct snappy_env *env)
 {
 	vfree(env->hash_table);
-	memset(&env, 0, sizeof(struct snappy_env));
+	vfree(env->scratch);
+	vfree(env->scratch_output);
+	memset(env, 0, sizeof(struct snappy_env));
 }
 EXPORT_SYMBOL(snappy_free_env);
