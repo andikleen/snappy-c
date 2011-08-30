@@ -11,7 +11,7 @@ int main(int ac, char **av)
 {
 	int failed = 0;
 	struct snappy_env env;
-	snappy_init_env(&env);
+	snappy_init_env(&env, false);
 
 	while (*++av) { 
 		size_t size;

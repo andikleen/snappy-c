@@ -38,6 +38,7 @@
 
 #ifdef __KERNEL__
 #include <linux/kernel.h>
+#include <linux/uio.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -199,25 +200,43 @@ static inline char *varint_encode32(char *sptr, u32 v)
 }
 
 struct source {
-	const char *ptr;
-	size_t left;
+	struct iovec *iov;
+	int iovlen;
+	int curvec;
+	int curoff;
+	size_t total;
 };
 
+/* Only valid at beginning when nothing is consumed */
 static inline int available(struct source *s)
 {
-	return s->left;
+	return s->total;
 }
 
-static inline const char *peek(struct source *s, size_t * len)
+static inline const char *peek(struct source *s, size_t *len)
 {
-	*len = s->left;
-	return s->ptr;
+	if (likely(s->curvec < s->iovlen)) {
+		struct iovec *iv = &s->iov[s->curvec];
+		if (s->curoff < iv->iov_len) { 
+			*len = iv->iov_len - s->curoff;
+			const char *p = iv->iov_base + s->curoff;
+			s->curoff = 0;
+			s->curvec++;
+			return p;
+		}
+	}
+	*len = 0;
+	return NULL;
 }
 
 static inline void skip(struct source *s, size_t n)
 {
-	s->left -= n;
-	s->ptr += n;
+	struct iovec *iv = &s->iov[s->curvec];
+	s->curoff += n;
+	if (s->curoff >= iv->iov_len) {
+		s->curoff = 0;
+		s->curvec++;
+	}
 }
 
 struct sink {
@@ -1138,7 +1157,6 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 			pending_advance = num_to_read;
 			fragment_size = num_to_read;
 		}
-#ifdef SCATHER_GATHER
 		else {
 			memcpy(env->scratch, fragment, bytes_read);
 			skip(reader, bytes_read);
@@ -1156,7 +1174,6 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 			fragment = env->scratch;
 			fragment_size = num_to_read;
 		}
-#endif
 		if (fragment_size < num_to_read)
 			return -EIO;
 
@@ -1170,7 +1187,7 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 
 		char *dest;
 		dest = sink_peek(writer, max_output);
-#ifdef SCATHER_GATHER
+#ifdef SCATHER_GATHER_WRITE
 		if (!dest) {
 			/*
 			 * Need a scratch buffer for the output,
@@ -1194,6 +1211,28 @@ out:
 	return err;
 }
 
+int snappy_compress_iov(struct snappy_env *env,
+			struct iovec *iov_in,
+			int iov_in_len,
+			size_t input_length,
+			char *compressed, size_t *compressed_length)
+{
+	struct source reader = {
+		.iov = iov_in,
+		.iovlen = iov_in_len,
+		.total = input_length
+	};
+	struct sink writer = {
+		.dest = compressed,
+	};
+	int err = compress(env, &reader, &writer);
+
+	/* Compute how many bytes were added */
+	*compressed_length = (writer.dest - compressed);
+	return err;
+}
+EXPORT_SYMBOL(snappy_compress_iov);
+
 /**
  * snappy_compress - Compress a buffer using the snappy compressor.
  * @env: Preallocated environment
@@ -1216,18 +1255,12 @@ int snappy_compress(struct snappy_env *env,
 		    size_t input_length,
 		    char *compressed, size_t *compressed_length)
 {
-	struct source reader = {
-		.ptr = input,
-		.left = input_length
+	struct iovec iov = {
+		.iov_base = (char *)input,
+		.iov_len = input_length,
 	};
-	struct sink writer = {
-		.dest = compressed,
-	};
-	int err = compress(env, &reader, &writer);
-
-	/* Compute how many bytes were added */
-	*compressed_length = (writer.dest - compressed);
-	return err;
+	return snappy_compress_iov(env, &iov, 1, input_length, 
+				   compressed, compressed_length);
 }
 EXPORT_SYMBOL(snappy_compress);
 
@@ -1244,9 +1277,14 @@ EXPORT_SYMBOL(snappy_compress);
  */
 bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 {
+	struct iovec iov = {
+		.iov_base = (char *)compressed,
+		.iov_len = n
+	};
 	struct source reader = {
-		.ptr = compressed,
-		.left = n
+		.iov = &iov,
+		.iovlen = 1,
+		.total = n
 	};
 	struct writer output = {
 		.base = uncompressed,
@@ -1259,20 +1297,26 @@ EXPORT_SYMBOL(snappy_uncompress);
 /**
  * snappy_init_env - Allocate snappy compression environment
  * @env: Environment to preallocate
+ * @sg: Input environment ever does scather gather
  *
  * Returns 0 on success, otherwise negative errno.
  * Must run in process context.
  */
-int snappy_init_env(struct snappy_env *env)
+int snappy_init_env(struct snappy_env *env, bool sg)
 {
 	env->hash_table = vmalloc(sizeof(u16) * kmax_hash_table_size);
 	if (!env->hash_table)
 		goto error;
-#ifdef SCATHER_GATHER
-	env->scratch = vmalloc(kblock_size);
+	if (sg) { 
+		env->scratch = vmalloc(kblock_size);
+		if (!env->scratch)
+			goto error;
+	}
+
+#ifdef SCATHER_GATHER_WRITE	    
 	env->scratch_output =
 		vmalloc(snappy_max_compressed_length(kblock_size));
-	if (!env->scratch || !env->scratch_output)
+	if (!env->scratch_output)
 		goto error;
 #endif
 	return 0;
@@ -1291,8 +1335,8 @@ EXPORT_SYMBOL(snappy_init_env);
 void snappy_free_env(struct snappy_env *env)
 {
 	vfree(env->hash_table);
-#ifdef SCATHER_GATHER
 	vfree(env->scratch);
+#ifdef SCATHER_GATHER_WRITE
 	vfree(env->scratch_output);
 #endif
 	memset(env, 0, sizeof(struct snappy_env));

@@ -29,7 +29,7 @@ void test_snappy(char *map, size_t size, char *fn)
 	char *buf2 = xmalloc(size);
 
 	struct snappy_env env;
-	snappy_init_env(&env);
+	snappy_init_env(&env, false);
 
 	BENCH(snappy, "snappy", fn, &env);
 

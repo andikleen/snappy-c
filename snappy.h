@@ -16,7 +16,7 @@ struct snappy_env {
 	void *scratch_output;
 };
 
-int snappy_init_env(struct snappy_env *env);
+int snappy_init_env(struct snappy_env *env, bool sg);
 void snappy_free_env(struct snappy_env *env);
 bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed);
 int snappy_compress(struct snappy_env *env,
@@ -24,6 +24,12 @@ int snappy_compress(struct snappy_env *env,
 		    size_t input_length,
 		    char *compressed,
 		    size_t *compressed_length);
+struct iovec;
+int snappy_compress_iov(struct snappy_env *env,
+			struct iovec *iov_in,
+			int iov_in_len,
+			size_t input_length,
+			char *compressed, size_t *compressed_length);
 bool snappy_uncompressed_length(const char *buf, size_t len, size_t *result);
 size_t snappy_max_compressed_length(size_t source_len);
 

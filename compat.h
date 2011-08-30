@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <limits.h>
+#include <sys/uio.h>
 
 #define BUG_ON(x) assert(!(x))
 

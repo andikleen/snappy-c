@@ -119,7 +119,7 @@ int main(int ac, char **av)
 
 	if (mode == compress) {
 		struct snappy_env env;
-		snappy_init_env(&env);
+		snappy_init_env(&env, false);
 		err = snappy_compress(&env, map, size, out, &outlen);
 	} else
 		err = snappy_uncompress(map, size, out);
