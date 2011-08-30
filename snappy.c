@@ -3,6 +3,7 @@
  * This is a very fast compressor with comparable compression to lzo.
  * Works best on 64bit little-endian, but should be good on others too.
  * Ported by Andi Kleen.
+ * Based on snappy 1.0.3 plus some selected changes from SVN.
  */
 
 /*
@@ -965,19 +966,21 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 		}
 
 		const unsigned char c = *(const unsigned char *)(ip++);
-		const u32 entry = char_table[c];
-		const u32 trailer =
-		    get_unaligned_le32(ip) & wordmask[entry >> 11];
-		ip += entry >> 11;
-		const u32 length = entry & 0xff;
 
 		if ((c & 0x3) == LITERAL) {
-			u32 literal_length = length + trailer;
+			u32 literal_length = c >> 2;
+			if (unlikely(literal_length >= 60)) {
+				/* Long literal */
+				const u32 literal_ll = literal_length - 59;
+				literal_length = get_unaligned_le32(ip) &
+					wordmask[literal_ll];
+				ip += literal_ll;
+			}
+			++literal_length;
+
 			u32 avail = d->ip_limit - ip;
 			while (avail < literal_length) {
-				bool allow_fast_path = (avail >= 16);
-				if (!writer_append
-				    (writer, ip, avail, allow_fast_path))
+				if (!writer_append(writer, ip, avail, false))
 					return;
 				literal_length -= avail;
 				skip(d->reader, d->peeked);
@@ -995,6 +998,12 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 				return;
 			ip += literal_length;
 		} else {
+			const u32 entry = char_table[c];
+			const u32 trailer = get_unaligned_le32(ip) &
+				wordmask[entry >> 11];
+			const u32 length = entry & 0xff;
+			ip += entry >> 11;
+
 			/*
 			 * copy_offset/256 is encoded in bits 8..10.
 			 * By just fetching those bits, we get
@@ -1112,8 +1121,6 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 	append(writer, ulength, p - ulength);
 	written += (p - ulength);
 
-	char *scratch = env->scratch;
-
 	while (N > 0) {
 		/* Get next block to compress (without copying if possible) */
 		size_t fragment_size;
@@ -1130,8 +1137,10 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 			/* Buffer returned by reader is large enough */
 			pending_advance = num_to_read;
 			fragment_size = num_to_read;
-		} else {
-			memcpy(scratch, fragment, bytes_read);
+		}
+#ifdef SCATHER_GATHER
+		else {
+			memcpy(env->scratch, fragment, bytes_read);
 			skip(reader, bytes_read);
 
 			while (bytes_read < num_to_read) {
@@ -1139,15 +1148,17 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 				size_t n =
 				    min_t(size_t, fragment_size,
 					  num_to_read - bytes_read);
-				memcpy(scratch + bytes_read, fragment, n);
+				memcpy(env->scratch + bytes_read, fragment, n);
 				bytes_read += n;
 				skip(reader, n);
 			}
 			DCHECK_EQ(bytes_read, num_to_read);
-			fragment = scratch;
+			fragment = env->scratch;
 			fragment_size = num_to_read;
 		}
-		DCHECK_EQ(fragment_size, num_to_read);
+#endif
+		if (fragment_size < num_to_read)
+			return -EIO;
 
 		/* Get encoding table for compression */
 		int table_size;
@@ -1159,6 +1170,7 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 
 		char *dest;
 		dest = sink_peek(writer, max_output);
+#ifdef SCATHER_GATHER
 		if (!dest) {
 			/*
 			 * Need a scratch buffer for the output,
@@ -1167,6 +1179,7 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 			 */
 			dest = env->scratch_output;
 		}
+#endif
 		char *end = compress_fragment(fragment, fragment_size,
 					      dest, table, table_size);
 		append(writer, dest, end - dest);
@@ -1253,14 +1266,19 @@ EXPORT_SYMBOL(snappy_uncompress);
 int snappy_init_env(struct snappy_env *env)
 {
 	env->hash_table = vmalloc(sizeof(u16) * kmax_hash_table_size);
+	if (!env->hash_table)
+		goto error;
+#ifdef SCATHER_GATHER
 	env->scratch = vmalloc(kblock_size);
-	env->scratch_output = 
+	env->scratch_output =
 		vmalloc(snappy_max_compressed_length(kblock_size));
-	if (!env->hash_table || !env->scratch || !env->scratch_output) {
-		snappy_free_env(env);
-		return -ENOMEM;
-	}
+	if (!env->scratch || !env->scratch_output)
+		goto error;
+#endif
 	return 0;
+error:
+	snappy_free_env(env);
+	return -ENOMEM;
 }
 EXPORT_SYMBOL(snappy_init_env);
 
@@ -1273,8 +1291,10 @@ EXPORT_SYMBOL(snappy_init_env);
 void snappy_free_env(struct snappy_env *env)
 {
 	vfree(env->hash_table);
+#ifdef SCATHER_GATHER
 	vfree(env->scratch);
 	vfree(env->scratch_output);
+#endif
 	memset(env, 0, sizeof(struct snappy_env));
 }
 EXPORT_SYMBOL(snappy_free_env);
