@@ -11,7 +11,7 @@ int main(int ac, char **av)
 {
 	int failed = 0;
 	struct snappy_env env;
-	snappy_init_env(&env, false);
+	snappy_init_env(&env);
 
 	while (*++av) { 
 		size_t size;
@@ -32,14 +32,16 @@ int main(int ac, char **av)
 		err = snappy_compress(&env, map, size, out, &outlen);		
 		if (err) {
 			failed = 1;
-			printf("compression of %s failed: %d\n", *av, err);
+			printf("compression of %s failed: %s\n", *av, 
+			       strerror(-err));
 			goto next;
 		}
 		err = snappy_uncompress(out, outlen, buf2);
 
 		if (err) {
 			failed = 1;
-			printf("uncompression of %s failed: %d\n", *av, err);
+			printf("uncompression of %s failed: %s\n", *av, 
+			       strerror(-err));
 			goto next;
 		}
 		if (memcmp(buf2, map, size)) {
