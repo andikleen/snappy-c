@@ -238,19 +238,38 @@ static inline void skip(struct source *s, size_t n)
 }
 
 struct sink {
-	char *dest;
+	struct iovec *iov;
+	int iovlen;
+	unsigned curvec;
+	unsigned curoff;
+	unsigned written;
 };
 
 static inline void append(struct sink *s, const char *data, size_t n)
 {
-	if (data != s->dest)
-		memcpy(s->dest, data, n);
-	s->dest += n;
+	struct iovec *iov = &s->iov[s->curvec];
+	char *dst = iov->iov_base + s->curoff;
+	size_t nlen = min_t(size_t, iov->iov_len - s->curoff, n);
+	if (data != dst)
+		memcpy(dst, data, nlen);
+	s->written += n;
+	while ((n -= nlen) > 0) {
+		data += nlen;
+		s->curvec++;
+		DCHECK_LT(s->curvec, s->iovlen);
+		iov++;
+		nlen = min_t(size_t, iov->iov_len, n);
+		memcpy(iov->iov_base, data, nlen);
+	}
+	s->curoff += nlen;
 }
 
 static inline void *sink_peek(struct sink *s, size_t n)
 {
-	return s->dest;
+	struct iovec *iov = &s->iov[s->curvec];
+	if (s->curvec < iov->iov_len && iov->iov_len - s->curoff >= n)
+		return iov->iov_base + s->curoff;
+	return NULL;
 }
 
 struct writer {
@@ -1213,7 +1232,9 @@ int snappy_compress_iov(struct snappy_env *env,
 			struct iovec *iov_in,
 			int iov_in_len,
 			size_t input_length,
-			char *compressed, size_t *compressed_length)
+			struct iovec *iov_out,
+			int iov_out_len,
+			size_t *compressed_length)
 {
 	struct source reader = {
 		.iov = iov_in,
@@ -1221,12 +1242,13 @@ int snappy_compress_iov(struct snappy_env *env,
 		.total = input_length
 	};
 	struct sink writer = {
-		.dest = compressed,
+		.iov = iov_out,
+		.iovlen = iov_out_len,
 	};
 	int err = compress(env, &reader, &writer);
 
 	/* Compute how many bytes were added */
-	*compressed_length = (writer.dest - compressed);
+	*compressed_length = writer.written;
 	return err;
 }
 EXPORT_SYMBOL(snappy_compress_iov);
@@ -1253,12 +1275,17 @@ int snappy_compress(struct snappy_env *env,
 		    size_t input_length,
 		    char *compressed, size_t *compressed_length)
 {
-	struct iovec iov = {
+	struct iovec iov_in = {
 		.iov_base = (char *)input,
 		.iov_len = input_length,
 	};
-	return snappy_compress_iov(env, &iov, 1, input_length, 
-				   compressed, compressed_length);
+	struct iovec iov_out = {
+		.iov_base = compressed,
+		.iov_len = 0xffffffff,
+	};		
+	return snappy_compress_iov(env, 
+				   &iov_in, 1, input_length, 
+				   &iov_out, 1, compressed_length);
 }
 EXPORT_SYMBOL(snappy_compress);
 

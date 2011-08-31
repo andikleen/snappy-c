@@ -31,7 +31,9 @@ int snappy_compress_iov(struct snappy_env *env,
 			struct iovec *iov_in,
 			int iov_in_len,
 			size_t input_length,
-			char *compressed, size_t *compressed_length);
+			struct iovec *iov_out,
+			int iov_out_len,
+			size_t *compressed_length);
 bool snappy_uncompressed_length(const char *buf, size_t len, size_t *result);
 size_t snappy_max_compressed_length(size_t source_len);
 
