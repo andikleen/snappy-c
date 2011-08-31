@@ -3,7 +3,7 @@ CFLAGS := -Wall -g -O2 -DNDEBUG=1
 CFLAGS += -m32
 LDFLAGS += -m32
 
-all: scmd verify
+all: scmd verify sgverify
 
 snappy.o: snappy.c
 
@@ -41,5 +41,7 @@ bench: bench.o map.o snappy.o util.o ${OTHER} # ${SNAPREF}
 bench.o: CFLAGS += -I ../simple-pmu -D COMP # ${SNAPREF_FL}  # -D SIMPLE_PMU
 
 verify: verify.o map.o snappy.o util.o
+
+sgverify: sgverify.o map.o snappy.o util.o
 
 
