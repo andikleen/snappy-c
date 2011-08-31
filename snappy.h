@@ -18,6 +18,7 @@ struct snappy_env {
 
 struct iovec;
 int snappy_init_env(struct snappy_env *env);
+int snappy_init_env_sg(struct snappy_env *env, bool sg);
 void snappy_free_env(struct snappy_env *env);
 bool snappy_uncompress_iov(struct iovec *iov_in, int iov_in_len,
 			   size_t input_len, char *uncompressed);

@@ -1204,7 +1204,6 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 
 		char *dest;
 		dest = sink_peek(writer, max_output);
-#ifdef SCATHER_GATHER_WRITE
 		if (!dest) {
 			/*
 			 * Need a scratch buffer for the output,
@@ -1213,7 +1212,6 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 			 */
 			dest = env->scratch_output;
 		}
-#endif
 		char *end = compress_fragment(fragment, fragment_size,
 					      dest, table, table_size);
 		append(writer, dest, end - dest);
@@ -1327,31 +1325,48 @@ bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 EXPORT_SYMBOL(snappy_uncompress);
 
 /**
- * snappy_init_env - Allocate snappy compression environment
+ * snappy_init_env_sg - Allocate snappy compression environment
  * @env: Environment to preallocate
  * @sg: Input environment ever does scather gather
  *
+ * If false is passed to sg then multiple entries in an iovec
+ * are not legal.
+ * Returns 0 on success, otherwise negative errno.
+ * Must run in process context.
+ */
+int snappy_init_env_sg(struct snappy_env *env, bool sg)
+{
+	env->hash_table = vmalloc(sizeof(u16) * kmax_hash_table_size);
+	if (!env->hash_table)
+		goto error;
+	if (sg) {
+		env->scratch = vmalloc(kblock_size);
+		if (!env->scratch)
+			goto error;
+		env->scratch_output =
+			vmalloc(snappy_max_compressed_length(kblock_size));
+		if (!env->scratch_output)
+			goto error;
+	}
+	return 0;
+error:
+	snappy_free_env(env);
+	return -ENOMEM;
+}
+EXPORT_SYMBOL(snappy_init_env_sg);
+
+/**
+ * snappy_init_env - Allocate snappy compression environment
+ * @env: Environment to preallocate
+ *
+ * Passing multiple entries in an iovec is not allowed
+ * on the environment allocated here.
  * Returns 0 on success, otherwise negative errno.
  * Must run in process context.
  */
 int snappy_init_env(struct snappy_env *env)
 {
-	env->hash_table = vmalloc(sizeof(u16) * kmax_hash_table_size);
-	if (!env->hash_table)
-		goto error;
-#ifdef SCATHER_GATHER_WRITE
-	env->scratch = vmalloc(kblock_size);
-	if (!env->scratch)
-		goto error;
-	env->scratch_output =
-		vmalloc(snappy_max_compressed_length(kblock_size));
-	if (!env->scratch_output)
-		goto error;
-#endif
-	return 0;
-error:
-	snappy_free_env(env);
-	return -ENOMEM;
+	return snappy_init_env_sg(env, false);
 }
 EXPORT_SYMBOL(snappy_init_env);
 
@@ -1364,10 +1379,8 @@ EXPORT_SYMBOL(snappy_init_env);
 void snappy_free_env(struct snappy_env *env)
 {
 	vfree(env->hash_table);
-#ifdef SCATHER_GATHER_WRITE
 	vfree(env->scratch);
 	vfree(env->scratch_output);
-#endif
 	memset(env, 0, sizeof(struct snappy_env));
 }
 EXPORT_SYMBOL(snappy_free_env);
