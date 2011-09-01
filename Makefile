@@ -10,7 +10,7 @@ snappy.o: snappy.c
 scmd: scmd.o snappy.o map.o util.o
 
 CLEAN := scmd.o snappy.o scmd bench bench.o fuzzer.o fuzzer map.o verify.o \
-	 verify util.o
+	 verify util.o sgverify sgverify.o
 
 clean: 
 	rm -f ${CLEAN}
