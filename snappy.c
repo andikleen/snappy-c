@@ -253,6 +253,7 @@ static inline void append(struct sink *s, const char *data, size_t n)
 	if (data != dst)
 		memcpy(dst, data, nlen);
 	s->written += n;
+	s->curoff += nlen;
 	while ((n -= nlen) > 0) {
 		data += nlen;
 		s->curvec++;
@@ -260,8 +261,8 @@ static inline void append(struct sink *s, const char *data, size_t n)
 		iov++;
 		nlen = min_t(size_t, iov->iov_len, n);
 		memcpy(iov->iov_base, data, nlen);
+		s->curoff = nlen;
 	}
-	s->curoff += nlen;
 }
 
 static inline void *sink_peek(struct sink *s, size_t n)
