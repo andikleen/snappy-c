@@ -1302,7 +1302,7 @@ bool snappy_uncompress_iov(struct iovec *iov_in, int iov_in_len,
 	};
 	return internal_uncompress(&reader, &output, 0xffffffff);
 }
-EXPORT_SYMBOL(snappy_uncompress);
+EXPORT_SYMBOL(snappy_uncompress_iov);
 
 /**
  * snappy_uncompress - Uncompress a snappy compressed buffer
