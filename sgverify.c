@@ -12,7 +12,7 @@
 #include <sys/stat.h>
 #include "map.h"
 
-#define REPEAT 100
+#define REPEAT 20
 #define N 5000
 
 size_t sum_iov(struct iovec *iov, int n)
@@ -24,12 +24,38 @@ size_t sum_iov(struct iovec *iov, int n)
 	return len;
 }
 
+static int rnd_seq;
+
+int rand_seq(void)
+{	
+	++rnd_seq;
+	return rand();
+}
+
+void *iov_to_buf(struct iovec *iov, int n, size_t *len)
+{
+	*len = sum_iov(iov, n);
+	void *p = malloc(*len);
+	int i;
+	unsigned offset = 0;
+	for (i = 0; i < n; i++) {
+		memcpy(p + offset, iov[i].iov_base, iov[i].iov_len);
+		offset += iov[i].iov_len;
+	}
+	return p;
+}
+
 int main(int ac, char **av)
 {
 	struct snappy_env env;
 	snappy_init_env_sg(&env, true);
 
 	srand(99);
+#if 0
+	int j;
+	for (j = 0; j < 60016; j++)
+		rand_seq();
+#endif
 
 	while (*++av) { 
 		size_t st_size;
@@ -41,8 +67,11 @@ int main(int ac, char **av)
 			int iv = 0;
 			size_t size = st_size;
 			size_t offset = 0;
+
+			unsigned rnd_seq_start = rnd_seq;
+
 			while (size > 0 && iv < N - 1) {
-				size_t len = rand() % size + 1;
+				size_t len = rand_seq() % size + 1;
 
 				if (len > size)
 					len = size;
@@ -65,7 +94,7 @@ int main(int ac, char **av)
 			int ov = 0;
 			size = snappy_max_compressed_length(st_size);
 			while (size > 0 && ov < N - 1) {
-				size_t len = rand() % size + 1;
+				size_t len = rand_seq() % size + 1;
 				if (len > size)
 					len = size;
 				out_iov[ov].iov_len = len;
@@ -76,7 +105,6 @@ int main(int ac, char **av)
 			out_iov[ov].iov_base = malloc(size);
 			out_iov[ov].iov_len = size;
 			ov++;
-
 			
 			assert (sum_iov(out_iov, ov) == 
 				snappy_max_compressed_length(st_size));
@@ -90,12 +118,12 @@ int main(int ac, char **av)
 
 			char *obuf = malloc(st_size);
 
-			if (!snappy_uncompress_iov(out_iov, iv, outlen, obuf))
+			if (!snappy_uncompress_iov(out_iov, ov, outlen, obuf))
 				printf("uncompression of %s failed\n", *av);
 		
 			if (memcmp(obuf, map, st_size)) {
-				printf("comparison of %s failed, olen %u, orig %u\n", *av,
-				       outlen, st_size);
+				printf("comparison of %s failed, olen %u, orig %u, rnd_seq %d\n", *av,
+				       outlen, st_size, rnd_seq_start);
 				int j;
 				for (j = 0; j < st_size; j++)
 					if (obuf[j] != map[j]) {
@@ -111,6 +139,7 @@ int main(int ac, char **av)
 				free(in_iov[w].iov_base);
 			for (w = 0; w < ov; w++)
 				free(out_iov[w].iov_base);
+			free(obuf);
 		}
 
 		unmap_file(map, st_size);
