@@ -57,6 +57,13 @@ typedef unsigned long long counter_t;
 
 int main(int ac, char **av)
 {
+	int snappy_only = 0;
+
+	if (av[1] && !strcmp(av[1], "-s")) {
+		snappy_only = 1;
+		av++;
+	}
+
 #ifdef SIMPLE_PMU
 	pin_cpu(NULL);
 	if(perfmon_available() == 0) {
@@ -77,6 +84,8 @@ int main(int ac, char **av)
 
 		test_snappy(map, size, *av);
 
+		if (snappy_only)
+			goto unmap;
 
 #ifdef COMP		
 		test_lzo(map, size, *av);
@@ -91,6 +100,8 @@ int main(int ac, char **av)
 #ifdef SNAPREF
 		test_snapref(map, size, *av);
 #endif
+
+unmap:
 		unmap_file(map, size);
 		
 	}
