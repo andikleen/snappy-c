@@ -60,6 +60,10 @@ int main(int ac, char **av)
 	while (*++av) { 
 		size_t st_size;
 		char *map = mapfile(*av, O_RDONLY, &st_size);
+		if (!map) {
+			perror(*av);
+			continue;
+		}
 
 		int k;
 		for (k = 0; k < REPEAT; k++) { 
