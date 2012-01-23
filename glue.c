@@ -4,10 +4,16 @@
 #ifdef COMP
 #include "../comp/zconf.h"
 #include "../comp/zlib.h"
+#ifdef KERNEL_LZO
 #include "../comp/lzo/lzo.h"
+#endif
 #include "../comp/lzf.h"
 #include "../comp/quicklz.h"
 #include "../comp/fastlz.h"
+#ifndef KERNEL_LZO
+#include "../comp/minilzo-2.06/minilzo.h"
+#endif
+#include "../comp/lz4/lz4.h"
 #endif
 
 static inline int c_snappy(char *map, size_t size, char *out, size_t *outlen, void *a)
@@ -46,14 +52,22 @@ static inline int c_lzo(char *map, size_t size, char *out, size_t *outlen, void 
 
 static inline int d_lzo(char *out, size_t outlen, char *buf2, size_t size, void *a)
 {
-        return lzo1x_decompress_safe((u8*)out, outlen, (u8*)buf2, &size);
+        return lzo1x_decompress_safe((u8*)out, outlen, (u8*)buf2, &size
+#ifndef KERNEL_LZO
+				     ,NULL
+#endif
+		);
 }
 
 void test_lzo(char *map, size_t size, char *fn)
 {
 	int i;
 	int err;       
+#ifdef KERNEL_LZO
 	size_t outlen = lzo1x_worst_compress(size);
+#else
+	size_t outlen = size * 2;
+#endif
 	char *out = xmalloc(outlen);
 	char *buf2 = xmalloc(size);
 
@@ -243,6 +257,34 @@ void test_fastlz(char *map, size_t size, char *fn)
 	free(out);
 	free(buf2);
 }
+
+static inline int c_lz4(char *map, size_t size, char *out, size_t *outlen, void *a)
+{
+	*outlen = LZ4_compress(map, out, size);
+	return 0;
+}
+
+static inline int d_lz4(char *out, size_t outlen, char *buf2, size_t size, void *a)
+{
+	if (LZ4_uncompress(out, buf2, outlen) < 0)
+		return -1;
+	return 0;
+}
+
+void test_lz4(char *map, size_t size, char *fn)
+{
+	int i;
+	int err;       
+	size_t outlen = size * 2;
+	char *out = xmalloc(outlen);
+	char *buf2 = xmalloc(size);
+
+	BENCH(fastlz, "lz4", fn, NULL);
+
+	free(out);
+	free(buf2);
+}
+
 
 #endif
 

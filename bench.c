@@ -95,6 +95,7 @@ int main(int ac, char **av)
 		test_lzf(map, size, *av);
 		test_quicklz(map, size, *av);
 		test_fastlz(map, size, *av);
+		test_lz4(map, size, *av);
 #endif		
 
 #ifdef SNAPREF

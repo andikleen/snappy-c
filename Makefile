@@ -20,7 +20,11 @@ src: src.lex
 	gcc ${CFLAGS} -o src lex.yy.c
 
 
-OTHER := ../comp/lzo.o ../comp/zlib.o ../comp/lzf.o ../comp/quicklz.o \
+
+#LZO := ../comp/lzo.o
+LZO := ../comp/minilzo-2.06/minilzo.o
+
+OTHER := ${LZO} ../comp/zlib.o ../comp/lzf.o ../comp/quicklz.o \
 	 ../comp/fastlz.o
 
 # incompatible with 32bit
