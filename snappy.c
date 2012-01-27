@@ -391,23 +391,30 @@ static inline bool writer_append_from_self(struct writer *w, u32 offset,
 	return true;
 }
 
-static inline bool writer_append(struct writer *w, const char *ip, u32 len,
-				 bool allow_fast_path)
+static inline bool writer_append(struct writer *w, const char *ip, u32 len)
 {
 	char *op = w->op;
 	const int space_left = w->op_limit - op;
-	if (allow_fast_path && len <= 16 && space_left >= 16) {
-		/* Fast path, used for the majority (about 90%) of dynamic
-		 * invocations. */
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(ip));
-		UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(ip + 8));
-	} else {
-		if (space_left < len)
-			return false;
-		memcpy(op, ip, len);
-	}
+	if (space_left < len)
+		return false;
+	memcpy(op, ip, len);
 	w->op = op + len;
 	return true;
+}
+
+static inline bool writer_try_fast_append(struct writer *w, const char *ip, 
+					  u32 available, u32 len)
+{
+	char *op = w->op;
+	const int space_left = w->op_limit - op;
+	if (len <= 16 && available >= 16 && space_left >= 16) {
+		/* Fast path, used for the majority (~95%) of invocations */
+		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(ip));
+		UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(ip + 8));
+		w->op = op + len;
+		return true;
+	}
+	return false;
 }
 
 /*
@@ -1005,19 +1012,24 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 		const unsigned char c = *(const unsigned char *)(ip++);
 
 		if ((c & 0x3) == LITERAL) {
-			u32 literal_length = c >> 2;
-			if (unlikely(literal_length >= 60)) {
+			u32 literal_length = (c >> 2) + 1;
+			if (writer_try_fast_append(writer, ip, d->ip_limit - ip, 
+						   literal_length)) {
+				DCHECK_LT(literal_length, 61);
+				ip += literal_length;
+				continue;
+			}
+			if (unlikely(literal_length >= 61)) {
 				/* Long literal */
-				const u32 literal_ll = literal_length - 59;
-				literal_length = get_unaligned_le32(ip) &
-					wordmask[literal_ll];
+				const u32 literal_ll = literal_length - 60;
+				literal_length = (get_unaligned_le32(ip) &
+						  wordmask[literal_ll]) + 1;
 				ip += literal_ll;
 			}
-			++literal_length;
 
 			u32 avail = d->ip_limit - ip;
 			while (avail < literal_length) {
-				if (!writer_append(writer, ip, avail, false))
+				if (!writer_append(writer, ip, avail))
 					return;
 				literal_length -= avail;
 				skip(d->reader, d->peeked);
@@ -1029,9 +1041,7 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 					return;	/* Premature end of input */
 				d->ip_limit = ip + avail;
 			}
-			bool allow_fast_path = (avail >= 16);
-			if (!writer_append(writer, ip, literal_length,
-					   allow_fast_path))
+			if (!writer_append(writer, ip, literal_length))
 				return;
 			ip += literal_length;
 		} else {
