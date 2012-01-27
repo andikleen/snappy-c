@@ -586,6 +586,10 @@ EXPORT_SYMBOL(snappy_uncompressed_length);
 #define kblock_log 15
 #define kblock_size (1 << kblock_log)
 
+/* 
+ * This value could be halfed or quartered to save memory 
+ * at the cost of slightly worse compression.
+ */
 #define kmax_hash_table_bits 14
 #define kmax_hash_table_size (1 << kmax_hash_table_bits)
 
