@@ -108,11 +108,6 @@ static inline int find_lsb_set_non_zero(u32 n)
 
 static inline int find_lsb_set_non_zero64(u64 n)
 {
-	if (sizeof(long) == 4) {
-		if (n & 0xffffffff)
-			return __builtin_ctz(n & 0xffffffff);
-		return 32 + __builtin_ctz(n >> 32);
-	}
 	return __builtin_ctzll(n);
 }
 
@@ -625,7 +620,7 @@ static u16 *get_hash_table(struct snappy_env *env, size_t input_size,
  * Separate implementation for x86_64, for speed.  Uses the fact that
  * x86_64 is little endian.
  */
-#if defined(__LITTLE_ENDIAN__)
+#if defined(__LITTLE_ENDIAN__) && BITS_PER_LONG == 64
 static inline int find_match_length(const char *s1,
 				    const char *s2, const char *s2_limit)
 {
