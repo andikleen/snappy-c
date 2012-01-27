@@ -1001,6 +1001,21 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 {
 	const char *ip = d->ip;
 
+	/*
+	 * We could have put this refill fragment only at the beginning of the loop.
+	 * However, duplicating it at the end of each branch gives the compiler more
+	 * scope to optimize the <ip_limit_ - ip> expression based on the local
+	 * context, which overall increases speed.
+	 */
+#define MAYBE_REFILL() \
+        if (d->ip_limit - ip < 5) {		\
+		d->ip = ip;			\
+		if (!refill_tag(d)) return;	\
+		ip = d->ip;			\
+        }
+
+
+	MAYBE_REFILL();
 	for (;;) {
 		if (d->ip_limit - ip < 5) {
 			d->ip = ip;
@@ -1017,6 +1032,7 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 						   literal_length)) {
 				DCHECK_LT(literal_length, 61);
 				ip += literal_length;
+				MAYBE_REFILL();
 				continue;
 			}
 			if (unlikely(literal_length >= 61)) {
@@ -1044,6 +1060,7 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 			if (!writer_append(writer, ip, literal_length))
 				return;
 			ip += literal_length;
+			MAYBE_REFILL();
 		} else {
 			const u32 entry = char_table[c];
 			const u32 trailer = get_unaligned_le32(ip) &
@@ -1062,9 +1079,12 @@ static void decompress_all_tags(struct snappy_decompressor *d,
 						     copy_offset + trailer,
 						     length))
 				return;
+			MAYBE_REFILL();
 		}
 	}
 }
+
+#undef MAYBE_REFILL
 
 static bool refill_tag(struct snappy_decompressor *d)
 {
