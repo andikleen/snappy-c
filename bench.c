@@ -82,6 +82,10 @@ int main(int ac, char **av)
 		for (i = 0; i < size; i += 4096)
 			v = ((volatile char *)map)[i];
 
+#ifdef COMP
+		test_lz4(map, size, *av);
+#endif
+
 		test_snappy(map, size, *av);
 
 		if (snappy_only)
@@ -95,7 +99,6 @@ int main(int ac, char **av)
 		test_lzf(map, size, *av);
 		test_quicklz(map, size, *av);
 		test_fastlz(map, size, *av);
-		test_lz4(map, size, *av);
 #endif		
 
 #ifdef SNAPREF
