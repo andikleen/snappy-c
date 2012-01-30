@@ -1,4 +1,9 @@
-#include <endian.h>
+#ifdef __FreeBSD__
+#  include <sys/endian.h>
+#else
+#  include <endian.h>
+#endif
+
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
