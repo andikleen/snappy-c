@@ -1407,7 +1407,23 @@ bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 EXPORT_SYMBOL(snappy_uncompress);
 
 #else
-
+/**
+ * snappy_compress - Compress a buffer using the snappy compressor.
+ * @env: Preallocated environment
+ * @input: Input buffer
+ * @input_length: Length of input_buffer
+ * @compressed: Output buffer for compressed data
+ * @compressed_length: The real length of the output written here.
+ *
+ * Return 0 on success, otherwise an negative error code.
+ *
+ * The output buffer must be at least
+ * snappy_max_compressed_length(input_length) bytes long.
+ *
+ * Requires a preallocated environment from snappy_init_env.
+ * The environment does not keep state over individual calls
+ * of this function, just preallocates the memory.
+ */
 int snappy_compress(struct snappy_env *env,
 		    const char *input,
 		    size_t input_length,
@@ -1428,6 +1444,17 @@ int snappy_compress(struct snappy_env *env,
 }
 EXPORT_SYMBOL(snappy_compress);
 
+/**
+ * snappy_uncompress - Uncompress a snappy compressed buffer
+ * @compressed: Input buffer with compressed data
+ * @n: length of compressed buffer
+ * @uncompressed: buffer for uncompressed data
+ *
+ * The uncompressed data buffer must be at least
+ * snappy_uncompressed_length(compressed) bytes long.
+ *
+ * Returns true when successfull, otherwise false.
+ */
 bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 {
 	struct source reader = {
