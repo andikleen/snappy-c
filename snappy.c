@@ -200,6 +200,8 @@ static inline char *varint_encode32(char *sptr, u32 v)
 	return (char *)(ptr);
 }
 
+#ifdef SG
+
 struct source {
 	struct iovec *iov;
 	int iovlen;
@@ -273,6 +275,48 @@ static inline void *sink_peek(struct sink *s, size_t n)
 		return iov->iov_base + s->curoff;
 	return NULL;
 }
+
+#else
+
+struct source {
+	const char *ptr;
+	size_t left;
+};
+
+static inline int available(struct source *s)
+{
+	return s->left;
+}
+
+static inline const char *peek(struct source *s, size_t * len)
+{
+	*len = s->left;
+	return s->ptr;
+}
+
+static inline void skip(struct source *s, size_t n)
+{
+	s->left -= n;
+	s->ptr += n;
+}
+
+struct sink {
+	char *dest;
+};
+
+static inline void append(struct sink *s, const char *data, size_t n)
+{
+	if (data != s->dest)
+		memcpy(s->dest, data, n);
+	s->dest += n;
+}
+
+static inline void *sink_peek(struct sink *s, size_t n)
+{
+	return s->dest;
+}
+
+#endif
 
 struct writer {
 	char *base;
@@ -1262,6 +1306,8 @@ out:
 	return err;
 }
 
+#ifdef SG
+
 int snappy_compress_iov(struct snappy_env *env,
 			struct iovec *iov_in,
 			int iov_in_len,
@@ -1360,6 +1406,43 @@ bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 }
 EXPORT_SYMBOL(snappy_uncompress);
 
+#else
+
+int snappy_compress(struct snappy_env *env,
+		    const char *input,
+		    size_t input_length,
+		    char *compressed, size_t *compressed_length)
+{
+	struct source reader = {
+		.ptr = input,
+		.left = input_length
+	};
+	struct sink writer = {
+		.dest = compressed,
+	};
+	int err = compress(env, &reader, &writer);
+
+	/* Compute how many bytes were added */
+	*compressed_length = (writer.dest - compressed);
+	return err;
+}
+EXPORT_SYMBOL(snappy_compress);
+
+bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
+{
+	struct source reader = {
+		.ptr = compressed,
+		.left = n
+	};
+	struct writer output = {
+		.base = uncompressed,
+		.op = uncompressed
+	};
+	return internal_uncompress(&reader, &output, 0xffffffff);
+}
+EXPORT_SYMBOL(snappy_uncompress);
+#endif
+
 /**
  * snappy_init_env_sg - Allocate snappy compression environment
  * @env: Environment to preallocate
@@ -1415,8 +1498,10 @@ EXPORT_SYMBOL(snappy_init_env);
 void snappy_free_env(struct snappy_env *env)
 {
 	vfree(env->hash_table);
+#ifdef SG
 	vfree(env->scratch);
 	vfree(env->scratch_output);
+#endif
 	memset(env, 0, sizeof(struct snappy_env));
 }
 EXPORT_SYMBOL(snappy_free_env);

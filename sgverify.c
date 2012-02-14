@@ -1,5 +1,7 @@
 /* Test sg interfaces */
 
+#ifdef SG
+
 #include <assert.h>
 #include <sys/uio.h>
 #include <stdlib.h>
@@ -126,7 +128,7 @@ int main(int ac, char **av)
 				printf("uncompression of %s failed\n", *av);
 		
 			if (memcmp(obuf, map, st_size)) {
-				printf("comparison of %s failed, olen %u, orig %u, rnd_seq %d\n", *av,
+				printf("comparison of %s failed, olen %lu, orig %lu, rnd_seq %d\n", *av,
 				       outlen, st_size, rnd_seq_start);
 				int j;
 				for (j = 0; j < st_size; j++)
@@ -150,4 +152,7 @@ int main(int ac, char **av)
 	}
 	return 0;
 }	
-		
+	
+#else
+int main(void) { return 0; } 	
+#endif
