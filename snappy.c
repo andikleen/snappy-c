@@ -43,6 +43,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/snappy.h>
+#include <linux/vmalloc.h>
 #include <asm/unaligned.h>
 #else
 #include "snappy.h"
