@@ -4,14 +4,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-typedef unsigned char u8;
-typedef unsigned short u16;
-typedef unsigned u32;
-typedef unsigned long long u64;
-
 /* Only needed for compression. This preallocates the worst case */
 struct snappy_env {
-	u16 *hash_table;
+	unsigned short *hash_table;
 	void *scratch;
 	void *scratch_output;
 };
