@@ -46,8 +46,8 @@ int open_output(char *name, char *oname, char **ofn)
 		file = xmalloc(len + 6);
 		if (mode == compress)
 			snprintf(file, len + 6, "%s.snp", name);
-		else if (match_suffix(oname, ".snp")) {
-			strcpy(file, oname);
+		else if (match_suffix(name, ".snp")) {
+			strcpy(file, name);
 			file[len - 4] = 0;			
 		} else {
 			fprintf(stderr, "Please specify output name\n");
@@ -91,10 +91,12 @@ int main(int ac, char **av)
 	if (!av[optind])
 		usage();
 
-	if (mode == undef && match_suffix(av[optind], ".snp"))
-		mode = uncompress;
-	else
-		mode = compress;
+	if (mode == undef) {
+		if (match_suffix(av[optind], ".snp"))
+			mode = uncompress;
+		else
+			mode = compress;
+	}
 
 	map = mapfile(av[optind], O_RDONLY, &size);
 	if (!map) { 
