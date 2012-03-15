@@ -38,7 +38,9 @@
 
 #ifdef __KERNEL__
 #include <linux/kernel.h>
+#ifdef SG
 #include <linux/uio.h>
+#endif
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -1470,6 +1472,7 @@ bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 EXPORT_SYMBOL(snappy_uncompress);
 #endif
 
+#ifdef SG
 /**
  * snappy_init_env_sg - Allocate snappy compression environment
  * @env: Environment to preallocate
@@ -1500,6 +1503,7 @@ error:
 	return -ENOMEM;
 }
 EXPORT_SYMBOL(snappy_init_env_sg);
+#endif
 
 /**
  * snappy_init_env - Allocate snappy compression environment
@@ -1512,7 +1516,10 @@ EXPORT_SYMBOL(snappy_init_env_sg);
  */
 int snappy_init_env(struct snappy_env *env)
 {
-	return snappy_init_env_sg(env, false);
+	env->hash_table = vmalloc(sizeof(u16) * kmax_hash_table_size);
+	if (!env->hash_table)
+		return -ENOMEM;
+	return 0;
 }
 EXPORT_SYMBOL(snappy_init_env);
 
