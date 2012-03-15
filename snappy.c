@@ -236,7 +236,7 @@ static inline void skip(struct source *s, size_t n)
 	struct iovec *iv = &s->iov[s->curvec];
 	s->curoff += n;
 	DCHECK_LE(s->curoff, iv->iov_len);
-	if (s->curoff >= iv->iov_len) {
+	if (s->curoff >= iv->iov_len && s->curvec + 1 < s->iovlen) {
 		s->curoff = 0;
 		s->curvec++;
 	}
