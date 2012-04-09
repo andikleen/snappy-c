@@ -108,11 +108,7 @@ int main(int ac, char **av)
 	char *out;	
 	size_t outlen;
 	if (mode == uncompress) {
-		if (!snappy_uncompressed_length(map, size, &outlen)) {
-			fprintf(stderr, "Cannot read length in %s\n", 
-				av[optind]);
-			exit(1);
-		}
+		err = snappy_uncompressed_length(map, size, &outlen);
 	} else {	
 		outlen = snappy_max_compressed_length(size);
 	}

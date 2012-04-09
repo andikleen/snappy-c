@@ -1371,7 +1371,7 @@ int snappy_compress(struct snappy_env *env,
 }
 EXPORT_SYMBOL(snappy_compress);
 
-bool snappy_uncompress_iov(struct iovec *iov_in, int iov_in_len,
+int snappy_uncompress_iov(struct iovec *iov_in, int iov_in_len,
 			   size_t input_len, char *uncompressed)
 {
 	struct source reader = {
@@ -1396,9 +1396,9 @@ EXPORT_SYMBOL(snappy_uncompress_iov);
  * The uncompressed data buffer must be at least
  * snappy_uncompressed_length(compressed) bytes long.
  *
- * Returns true when successfull, otherwise false.
+ * Return 0 on success, otherwise an negative error code.
  */
-bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
+int snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 {
 	struct iovec iov = {
 		.iov_base = (char *)compressed,
@@ -1455,9 +1455,9 @@ EXPORT_SYMBOL(snappy_compress);
  * The uncompressed data buffer must be at least
  * snappy_uncompressed_length(compressed) bytes long.
  *
- * Returns true when successfull, otherwise false.
+ * Return 0 on success, otherwise an negative error code.
  */
-bool snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
+int snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 {
 	struct source reader = {
 		.ptr = compressed,
