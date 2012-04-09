@@ -124,8 +124,9 @@ int main(int ac, char **av)
 
 			char *obuf = malloc(st_size);
 
-			if (!snappy_uncompress_iov(out_iov, ov, outlen, obuf))
-				printf("uncompression of %s failed\n", *av);
+			err = snappy_uncompress_iov(out_iov, ov, outlen, obuf);
+			if (err < 0)
+				printf("uncompression of %s failed: %d\n", *av, err);
 		
 			if (memcmp(obuf, map, st_size)) {
 				printf("comparison of %s failed, olen %lu, orig %lu, rnd_seq %d\n", *av,
