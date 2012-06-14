@@ -52,6 +52,12 @@
 #include "compat.h"
 #endif
 
+#ifdef __arm__
+#define SNAPPYC_SLOW_64BIT 1
+#else
+#undef SNAPPYC_SLOW_64BIT
+#endif
+
 #define CRASH_UNLESS(x) BUG_ON(!(x))
 #define CHECK(cond) CRASH_UNLESS(cond)
 #define CHECK_LE(a, b) CRASH_UNLESS((a) <= (b))
@@ -68,6 +74,16 @@
 #define UNALIGNED_STORE16(_p, _val) put_unaligned(_val, (u16 *)(_p))
 #define UNALIGNED_STORE32(_p, _val) put_unaligned(_val, (u32 *)(_p))
 #define UNALIGNED_STORE64(_p, _val) put_unaligned(_val, (u64 *)(_p))
+
+static inline void unaligned_copy64(char* op, const char* src)
+{
+#if SNAPPYC_SLOW_64BIT
+	UNALIGNED_STORE32(op, UNALIGNED_LOAD32(src));
+	UNALIGNED_STORE32(op + 4, UNALIGNED_LOAD32(src + 4));
+#else
+	UNALIGNED_STORE64(op, UNALIGNED_LOAD32(src));
+#endif
+}
 
 #ifdef NDEBUG
 
@@ -398,12 +414,12 @@ static inline void incremental_copy_fast_path(const char *src, char *op,
 					      int len)
 {
 	while (op - src < 8) {
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(src));
+		unaligned_copy64(op, src);
 		len -= op - src;
 		op += op - src;
 	}
 	while (len > 0) {
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(src));
+		unaligned_copy64(op, src);
 		src += 8;
 		op += 8;
 		len -= 8;
@@ -421,8 +437,8 @@ static inline bool writer_append_from_self(struct writer *w, u32 offset,
 	if (len <= 16 && offset >= 8 && space_left >= 16) {
 		/* Fast path, used for the majority (70-80%) of dynamic
 		 * invocations. */
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(op - offset));
-		UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(op - offset + 8));
+		unaligned_copy64(op, op - offset);
+		unaligned_copy64(op + 8, op - offset + 8);
 	} else {
 		if (space_left >= len + kmax_increment_copy_overflow) {
 			incremental_copy_fast_path(op - offset, op, len);
@@ -456,8 +472,8 @@ static inline bool writer_try_fast_append(struct writer *w, const char *ip,
 	const int space_left = w->op_limit - op;
 	if (len <= 16 && available >= 16 && space_left >= 16) {
 		/* Fast path, used for the majority (~95%) of invocations */
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(ip));
-		UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(ip + 8));
+		unaligned_copy64(op, ip);
+		unaligned_copy64(op + 8, ip + 8);
 		w->op = op + len;
 		return true;
 	}
@@ -540,9 +556,8 @@ static inline char *emit_literal(char *op,
  *     MaxCompressedLength).
  */
 		if (allow_fast_path && len <= 16) {
-			UNALIGNED_STORE64(op, UNALIGNED_LOAD64(literal));
-			UNALIGNED_STORE64(op + 8,
-					  UNALIGNED_LOAD64(literal + 8));
+			unaligned_copy64(op, literal);
+			unaligned_copy64(op + 8, literal + 8);
 			return op + len;
 		}
 	} else {
