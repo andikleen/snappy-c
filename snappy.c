@@ -81,7 +81,7 @@ static inline void unaligned_copy64(char* op, const char* src)
 	UNALIGNED_STORE32(op, UNALIGNED_LOAD32(src));
 	UNALIGNED_STORE32(op + 4, UNALIGNED_LOAD32(src + 4));
 #else
-	UNALIGNED_STORE64(op, UNALIGNED_LOAD32(src));
+	UNALIGNED_STORE64(op, UNALIGNED_LOAD64(src));
 #endif
 }
 
