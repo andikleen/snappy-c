@@ -1315,7 +1315,7 @@ int snappy_compress_iov(struct snappy_env *env,
 			int iov_in_len,
 			size_t input_length,
 			struct iovec *iov_out,
-			int iov_out_len,
+			int *iov_out_len,
 			size_t *compressed_length)
 {
 	struct source reader = {
@@ -1325,9 +1325,11 @@ int snappy_compress_iov(struct snappy_env *env,
 	};
 	struct sink writer = {
 		.iov = iov_out,
-		.iovlen = iov_out_len,
+		.iovlen = *iov_out_len,
 	};
 	int err = compress(env, &reader, &writer);
+
+	*iov_out_len = writer.curvec + 1;
 
 	/* Compute how many bytes were added */
 	*compressed_length = writer.written;
@@ -1364,10 +1366,11 @@ int snappy_compress(struct snappy_env *env,
 	struct iovec iov_out = {
 		.iov_base = compressed,
 		.iov_len = 0xffffffff,
-	};		
+	};
+	int out = 1;
 	return snappy_compress_iov(env, 
 				   &iov_in, 1, input_length, 
-				   &iov_out, 1, compressed_length);
+				   &iov_out, &out, compressed_length);
 }
 EXPORT_SYMBOL(snappy_compress);
 

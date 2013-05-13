@@ -47,6 +47,13 @@ void *iov_to_buf(struct iovec *iov, int n, size_t *len)
 	return p;
 }
 
+void test_read(char *buf, int len)
+{
+	int i;
+	for (i = 0; i < len; i++)
+		asm volatile("" :: "r" (buf[i]) : "memory");
+}
+
 int main(int ac, char **av)
 {
 	struct snappy_env env;
@@ -93,6 +100,10 @@ int main(int ac, char **av)
 			in_iov[iv].iov_base = malloc(size);
 			in_iov[iv].iov_len = size;
 			iv++;
+
+			int j;
+			for (j = 0; j < iv; j++)
+				test_read(in_iov[j].iov_base, in_iov[j].iov_len); 
 			
 			assert (sum_iov(in_iov, iv) == st_size);		
 				       		
@@ -118,9 +129,11 @@ int main(int ac, char **av)
 			size_t outlen;
 		
 			int err = snappy_compress_iov(&env, in_iov, iv, st_size, 
-						      out_iov, ov, &outlen);
+						      out_iov, &ov, &outlen);
 			if (err < 0) 
 				printf("compression of %s failed: %d\n", *av, err);
+
+			assert(outlen == sum_iov(out_iov, ov));
 
 			char *obuf = malloc(st_size);
 
