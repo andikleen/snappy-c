@@ -1,5 +1,19 @@
 #ifdef __FreeBSD__
 #  include <sys/endian.h>
+#elif defined(__APPLE_CC_) || defined(__MACH__)  /* MacOS/X support */
+#  include <machine/endian.h>
+
+#if    __DARWIN_BYTE_ORDER == __DARWIN_LITTLE_ENDIAN
+#  define	htole16(x) (x)
+#  define	le32toh(x) (x)
+#elif  __DARWIN_BYTE_ORDER == __DARWIN_BIG_ENDIAN
+#  define	htole16(x) __DARWIN_OSSwapInt16(x)
+#  define	le32toh(x) __DARWIN_OSSwapInt32(x)
+#else
+#  error "Endianness is undefined"
+#endif
+
+
 #else
 #  include <endian.h>
 #endif
