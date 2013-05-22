@@ -22,7 +22,7 @@ char *basen(char *s)
 
 int compare(char *a, char *b, size_t size)
 {
-	int i;
+    size_t i;
 	for (i = 0; i < size; i++)
 		if (a[i] != b[i])
 			return i;

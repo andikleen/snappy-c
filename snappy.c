@@ -313,7 +313,7 @@ static inline void append(struct sink *s, const char *data, size_t n)
 	s->dest += n;
 }
 
-static inline void *sink_peek(struct sink *s, size_t n)
+static inline void *sink_peek(struct sink *s, size_t n __attribute__((unused)))
 {
 	return s->dest;
 }
@@ -413,8 +413,9 @@ static inline void incremental_copy_fast_path(const char *src, char *op,
 static inline bool writer_append_from_self(struct writer *w, u32 offset,
 					   u32 len)
 {
-	char *op = w->op;
-	const int space_left = w->op_limit - op;
+	char *const op = w->op;
+	CHECK_LE(op, w->op_limit);
+	const u32 space_left = w->op_limit - op;
 
 	if (op - w->base <= offset - 1u)	/* -1u catches offset==0 */
 		return false;
@@ -440,8 +441,9 @@ static inline bool writer_append_from_self(struct writer *w, u32 offset,
 
 static inline bool writer_append(struct writer *w, const char *ip, u32 len)
 {
-	char *op = w->op;
-	const int space_left = w->op_limit - op;
+	char *const op = w->op;
+	CHECK_LE(op, w->op_limit);
+	const u32 space_left = w->op_limit - op;
 	if (space_left < len)
 		return false;
 	memcpy(op, ip, len);
@@ -450,11 +452,11 @@ static inline bool writer_append(struct writer *w, const char *ip, u32 len)
 }
 
 static inline bool writer_try_fast_append(struct writer *w, const char *ip, 
-					  u32 available, u32 len)
+					  u32 available_bytes, u32 len)
 {
-	char *op = w->op;
+	char *const op = w->op;
 	const int space_left = w->op_limit - op;
-	if (len <= 16 && available >= 16 && space_left >= 16) {
+	if (len <= 16 && available_bytes >= 16 && space_left >= 16) {
 		/* Fast path, used for the majority (~95%) of invocations */
 		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(ip));
 		UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(ip + 8));
@@ -638,7 +640,7 @@ EXPORT_SYMBOL(snappy_uncompressed_length);
  * at the cost of slightly worse compression.
  */
 #define kmax_hash_table_bits 14
-#define kmax_hash_table_size (1 << kmax_hash_table_bits)
+#define kmax_hash_table_size (1U << kmax_hash_table_bits)
 
 /*
  * Use smaller hash table when input.size() is smaller, since we
@@ -649,7 +651,7 @@ EXPORT_SYMBOL(snappy_uncompressed_length);
 static u16 *get_hash_table(struct snappy_env *env, size_t input_size,
 			      int *table_size)
 {
-	int htsize = 256;
+	unsigned htsize = 256;
 
 	DCHECK(kmax_hash_table_size >= 256);
 	while (htsize < kmax_hash_table_size && htsize < input_size)
@@ -780,7 +782,7 @@ static inline u32 get_u32_at_offset(u64 v, int offset)
 
 static char *compress_fragment(const char *const input,
 			       const size_t input_size,
-			       char *op, u16 * table, const int table_size)
+			       char *op, u16 * table, const unsigned table_size)
 {
 	/* "ip" is the input pointer, and "op" is the output pointer. */
 	const char *ip = input;
@@ -796,10 +798,10 @@ static char *compress_fragment(const char *const input,
 	 */
 	const char *next_emit = ip;
 
-	const int kinput_margin_bytes = 15;
+	const unsigned kinput_margin_bytes = 15;
 
 	if (likely(input_size >= kinput_margin_bytes)) {
-		const char *ip_limit = input + input_size -
+		const char *const ip_limit = input + input_size -
 			kinput_margin_bytes;
 
 		u32 next_hash;
@@ -832,7 +834,7 @@ static char *compress_fragment(const char *const input,
  * last match; dividing it by 32 (ie. right-shifting by five) gives the
  * number of bytes to move ahead for each iteration.
  */
-			u32 skip = 32;
+			u32 skip_bytes = 32;
 
 			const char *next_ip = ip;
 			const char *candidate;
@@ -840,7 +842,7 @@ static char *compress_fragment(const char *const input,
 				ip = next_ip;
 				u32 hval = next_hash;
 				DCHECK_EQ(hval, hash(ip, shift));
-				u32 bytes_between_hash_lookups = skip++ >> 5;
+				u32 bytes_between_hash_lookups = skip_bytes++ >> 5;
 				next_ip = ip + bytes_between_hash_lookups;
 				if (unlikely(next_ip > ip_limit)) {
 					goto emit_remainder;
@@ -1247,7 +1249,7 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 			err = -EIO;
 			goto out;
 		}
-		const int num_to_read = min_t(int, N, kblock_size);
+		const unsigned num_to_read = min_t(int, N, kblock_size);
 		size_t bytes_read = fragment_size;
 
 		int pending_advance = 0;
@@ -1265,7 +1267,7 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 				size_t n =
 				    min_t(size_t, fragment_size,
 					  num_to_read - bytes_read);
-				memcpy(env->scratch + bytes_read, fragment, n);
+				memcpy((char *)(env->scratch) + bytes_read, fragment, n);
 				bytes_read += n;
 				skip(reader, n);
 			}
