@@ -313,7 +313,7 @@ static inline void append(struct sink *s, const char *data, size_t n)
 	s->dest += n;
 }
 
-static inline void *sink_peek(struct sink *s, size_t n __attribute__((unused)))
+static inline void *sink_peek(struct sink *s, size_t n)
 {
 	return s->dest;
 }
