@@ -313,7 +313,9 @@ static inline void append(struct sink *s, const char *data, size_t n)
 	s->dest += n;
 }
 
-static inline void *sink_peek(struct sink *s, size_t n)
+#define sink_peek(s, n) sink_peek_no_sg(s)
+
+static inline void *sink_peek_no_sg(const struct sink *s)
 {
 	return s->dest;
 }
@@ -1283,11 +1285,8 @@ static inline int compress(struct snappy_env *env, struct source *reader,
 		u16 *table = get_hash_table(env, num_to_read, &table_size);
 
 		/* Compress input_fragment and append to dest */
-		const int max_output =
-		    snappy_max_compressed_length(num_to_read);
-
 		char *dest;
-		dest = sink_peek(writer, max_output);
+		dest = sink_peek(writer, snappy_max_compressed_length(num_to_read));
 		if (!dest) {
 			/*
 			 * Need a scratch buffer for the output,
