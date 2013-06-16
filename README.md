@@ -8,4 +8,19 @@ Also contains a command line tool, a benchmark, random test code and a fuzz test
 The compression code supports scather-gather and linear buffers. The scather
 gather code is ifdefed (-DSG) and can be removed with unifdef.
 
+API documentation: http://halobates.de/snappy.html
+
+To generate the documentation run
+
+	make html
+
+Requires the kerneldoc script from a Linux kernel source (may need to point
+the makefile to it). If you don't have the kernel source lying around
+just download it from
+https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/plain/scripts/kernel-doc
+and point the Makefile to it.
+
+
+
+
 Andi Kleen

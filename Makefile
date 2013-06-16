@@ -5,6 +5,10 @@ CFLAGS := -Wall -g -O2 -DNDEBUG=1  -DSG=1
 #CFLAGS += -m32
 #LDFLAGS += -m32
 
+# just needs the kerneldoc script. if you don't have a kernel source
+# download it somewhere and point to it
+KDOC := /usr/src/linux/scripts/kernel-doc
+
 all: scmd verify sgverify
 
 snappy.o: snappy.c
@@ -12,7 +16,7 @@ snappy.o: snappy.c
 scmd: scmd.o snappy.o map.o util.o
 
 CLEAN := scmd.o snappy.o scmd bench bench.o fuzzer.o fuzzer map.o verify.o \
-	 verify util.o sgverify sgverify.o
+	 verify util.o sgverify sgverify.o snappy.html snappy.man
 
 clean: 
 	rm -f ${CLEAN}
@@ -21,7 +25,14 @@ src: src.lex
 	flex src.lex
 	gcc ${CFLAGS} -o src lex.yy.c
 
+html: snappy.html
+man: snappy.man
 
+%.html: %.c
+	${KDOC} -html $^ > $@
+
+%.man: %.c
+	${KDOC} $^ > $@
 
 #LZO := ../comp/lzo.o
 LZO := ../comp/minilzo-2.06/minilzo.o
