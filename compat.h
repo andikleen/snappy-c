@@ -26,6 +26,20 @@
 #include <limits.h>
 #include <sys/uio.h>
 
+#if defined(__arm__) && \
+	!defined(__ARM_ARCH_5__) &&		\
+	!defined(__ARM_ARCH_5T__) &&		\
+	!defined(__ARM_ARCH_5TE__) &&		\
+	!defined(__ARM_ARCH_5TEJ__) &&		\
+	!defined(__ARM_ARCH_6__) &&		\
+	!defined(__ARM_ARCH_6J__) &&		\
+	!defined(__ARM_ARCH_6K__) &&		\
+	!defined(__ARM_ARCH_6Z__) &&		\
+	!defined(__ARM_ARCH_6ZK__) &&		\
+	!defined(__ARM_ARCH_6T2__)
+#define  UNALIGNED64_REALLYS_SLOW 1
+#endif
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned u32;
@@ -37,6 +51,24 @@ typedef unsigned long long u64;
 #define get_unaligned_le32(x) (le32toh(*(u32 *)(x)))
 #define put_unaligned(v,x) (*(x) = (v))
 #define put_unaligned_le16(v,x) (*(u16 *)(x) = htole16(v))
+
+/* You may want to define this on various ARM architectures */
+#ifdef UNALIGNED64_REALLYS_SLOW
+static inline u64 get_unaligned64(const void *p)
+{
+	u64 t;
+	memcpy(&t, p, 8);
+	return t;
+}
+static inline u64 put_unaligned64(u64 t, void *p)
+{
+	memcpy(p, &t, 8);
+	return t;
+}
+#else
+#define get_unaligned64(x) get_unaligned(x)
+#define put_unaligned64(x) put_unaligned(x)
+#endif
 
 #define vmalloc(x) malloc(x)
 #define vfree(x) free(x)

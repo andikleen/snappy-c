@@ -63,11 +63,28 @@
 
 #define UNALIGNED_LOAD16(_p) get_unaligned((u16 *)(_p))
 #define UNALIGNED_LOAD32(_p) get_unaligned((u32 *)(_p))
-#define UNALIGNED_LOAD64(_p) get_unaligned((u64 *)(_p))
+#define UNALIGNED_LOAD64(_p) get_unaligned64((u64 *)(_p))
 
 #define UNALIGNED_STORE16(_p, _val) put_unaligned(_val, (u16 *)(_p))
 #define UNALIGNED_STORE32(_p, _val) put_unaligned(_val, (u32 *)(_p))
-#define UNALIGNED_STORE64(_p, _val) put_unaligned(_val, (u64 *)(_p))
+#define UNALIGNED_STORE64(_p, _val) put_unaligned64(_val, (u64 *)(_p))
+
+/*
+ * This can be more efficient than UNALIGNED_LOAD64 + UNALIGNED_STORE64
+ * on some platforms, in particular ARM.
+ */
+static inline void UnalignedCopy64(const void *src, void *dst)
+{
+	if (sizeof(void *) == 8) {
+		UNALIGNED_STORE64(dst, UNALIGNED_LOAD64(src));
+	} else {
+		const char *src_char = (const char *)(src);
+		char *dst_char = (char *)(dst);
+
+		UNALIGNED_STORE32(dst_char, UNALIGNED_LOAD32(src_char));
+		UNALIGNED_STORE32(dst_char + 4, UNALIGNED_LOAD32(src_char + 4));
+	}
+}
 
 #ifdef NDEBUG
 
@@ -400,12 +417,12 @@ static inline void incremental_copy_fast_path(const char *src, char *op,
 					      int len)
 {
 	while (op - src < 8) {
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(src));
+		UnalignedCopy64(src, op);
 		len -= op - src;
 		op += op - src;
 	}
 	while (len > 0) {
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(src));
+		UnalignedCopy64(src, op);
 		src += 8;
 		op += 8;
 		len -= 8;
@@ -424,8 +441,8 @@ static inline bool writer_append_from_self(struct writer *w, u32 offset,
 	if (len <= 16 && offset >= 8 && space_left >= 16) {
 		/* Fast path, used for the majority (70-80%) of dynamic
 		 * invocations. */
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(op - offset));
-		UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(op - offset + 8));
+		UnalignedCopy64(op - offset, op);
+		UnalignedCopy64(op - offset + 8, op + 8);
 	} else {
 		if (space_left >= len + kmax_increment_copy_overflow) {
 			incremental_copy_fast_path(op - offset, op, len);
@@ -460,8 +477,8 @@ static inline bool writer_try_fast_append(struct writer *w, const char *ip,
 	const int space_left = w->op_limit - op;
 	if (len <= 16 && available_bytes >= 16 && space_left >= 16) {
 		/* Fast path, used for the majority (~95%) of invocations */
-		UNALIGNED_STORE64(op, UNALIGNED_LOAD64(ip));
-		UNALIGNED_STORE64(op + 8, UNALIGNED_LOAD64(ip + 8));
+		UnalignedCopy64(ip, op);
+		UnalignedCopy64(ip + 8, op + 8);
 		w->op = op + len;
 		return true;
 	}
@@ -544,9 +561,8 @@ static inline char *emit_literal(char *op,
  *     MaxCompressedLength).
  */
 		if (allow_fast_path && len <= 16) {
-			UNALIGNED_STORE64(op, UNALIGNED_LOAD64(literal));
-			UNALIGNED_STORE64(op + 8,
-					  UNALIGNED_LOAD64(literal + 8));
+			UnalignedCopy64(literal, op);
+			UnalignedCopy64(literal + 8, op + 8);
 			return op + len;
 		}
 	} else {
