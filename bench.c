@@ -7,6 +7,7 @@
 #include "map.h"
 #include "snappy.h"
 #include "util.h"
+#include "compat.h"
 
 #define N 10
 
@@ -18,6 +19,8 @@ typedef unsigned long long counter_t;
 #define COUNT() __builtin_ia32_rdtsc()
 #define sync_core() asm volatile("lfence" ::: "memory")
 #endif
+
+#define memeat(x) asm volatile("" :: "r" (x) : "memory")
 
 #define BENCH(name, names, fn, arg)					\
 	counter_t a, b, total_comp = 0, total_uncomp = 0;		\
@@ -78,9 +81,10 @@ int main(int ac, char **av)
 		if (!map)
 			err(*av);
 		
-		int i, v;
+		int i, v = 0;
 		for (i = 0; i < size; i += 4096)
 			v = ((volatile char *)map)[i];
+		memeat(v);
 
 #ifdef COMP
 		test_lz4(map, size, *av);
