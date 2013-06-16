@@ -11,7 +11,7 @@ KDOC := /usr/src/linux/scripts/kernel-doc
 
 all: scmd verify sgverify
 
-snappy.o: snappy.c
+snappy.o: snappy.c compat.h snappy-int.h
 
 scmd: scmd.o snappy.o map.o util.o
 
