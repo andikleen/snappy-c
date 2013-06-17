@@ -593,11 +593,11 @@ static inline char *emit_copy_less_than64(char *op, int offset, int len)
 		int len_minus_4 = len - 4;
 		DCHECK(len_minus_4 < 8);	/* Must fit in 3 bits */
 		*op++ =
-		    COPY_1_BYTE_OFFSET | ((len_minus_4) << 2) | ((offset >> 8)
+		    COPY_1_BYTE_OFFSET + ((len_minus_4) << 2) + ((offset >> 8)
 								 << 5);
 		*op++ = offset & 0xff;
 	} else {
-		*op++ = COPY_2_BYTE_OFFSET | ((len - 1) << 2);
+		*op++ = COPY_2_BYTE_OFFSET + ((len - 1) << 2);
 		put_unaligned_le16(offset, op);
 		op += 2;
 	}
