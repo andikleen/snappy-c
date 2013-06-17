@@ -27,6 +27,8 @@
 #include <sys/uio.h>
 
 #if defined(__arm__) && \
+	!defined(__ARM_ARCH_4__) &&		\
+	!defined(__ARM_ARCH_4T__) &&		\
 	!defined(__ARM_ARCH_5__) &&		\
 	!defined(__ARM_ARCH_5T__) &&		\
 	!defined(__ARM_ARCH_5TE__) &&		\
