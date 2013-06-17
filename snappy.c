@@ -772,17 +772,52 @@ static inline int find_match_length(const char *s1,
 #endif
 
 /*
- * For 0 <= offset <= 4, GetU32AtOffset(UNALIGNED_LOAD64(p), offset) will
+ * For 0 <= offset <= 4, GetU32AtOffset(GetEightBytesAt(p), offset) will
  *  equal UNALIGNED_LOAD32(p + offset).  Motivation: On x86-64 hardware we have
  * empirically found that overlapping loads such as
  *  UNALIGNED_LOAD32(p) ... UNALIGNED_LOAD32(p+1) ... UNALIGNED_LOAD32(p+2)
  * are slower than UNALIGNED_LOAD64(p) followed by shifts and casts to u32.
+ *
+ * We have different versions for 64- and 32-bit; ideally we would avoid the
+ * two functions and just inline the UNALIGNED_LOAD64 call into
+ * GetUint32AtOffset, but GCC (at least not as of 4.6) is seemingly not clever
+ * enough to avoid loading the value multiple times then. For 64-bit, the load
+ * is done when GetEightBytesAt() is called, whereas for 32-bit, the load is
+ * done at GetUint32AtOffset() time.
  */
+
+#if BITS_PER_LONG == 64
+
+typedef u64 eight_bytes_reference;
+
+static inline eight_bytes_reference get_eight_bytes_at(const char* ptr)
+{
+	return UNALIGNED_LOAD64(ptr);
+}
+
 static inline u32 get_u32_at_offset(u64 v, int offset)
 {
-	DCHECK(0 <= offset && offset <= 4);
+	DCHECK_GE(offset, 0);
+	DCHECK_LE(offset, 4);
 	return v >> (is_little_endian()? 8 * offset : 32 - 8 * offset);
 }
+
+#else
+
+typedef const char *eight_bytes_reference;
+
+static inline eight_bytes_reference get_eight_bytes_at(const char* ptr) 
+{
+	return ptr;
+}
+
+static inline u32 get_u32_at_offset(const char *v, int offset) 
+{
+	DCHECK_GE(offset, 0);
+	DCHECK_LE(offset, 4);
+	return UNALIGNED_LOAD32(v + offset);
+}
+#endif
 
 /*
  * Flat array compression that does not emit the "uncompressed length"
@@ -892,7 +927,7 @@ static char *compress_fragment(const char *const input,
  * by proceeding to the next iteration of the main loop.  We also can exit
  * this loop via goto if we get close to exhausting the input.
  */
-			u64 input_bytes = 0;
+			eight_bytes_reference input_bytes;
 			u32 candidate_bytes = 0;
 
 			do {
@@ -917,7 +952,7 @@ static char *compress_fragment(const char *const input,
 				if (unlikely(ip >= ip_limit)) {
 					goto emit_remainder;
 				}
-				input_bytes = UNALIGNED_LOAD64(insert_tail);
+				input_bytes = get_eight_bytes_at(insert_tail);
 				u32 prev_hash =
 				    hash_bytes(get_u32_at_offset
 					       (input_bytes, 0), shift);

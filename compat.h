@@ -67,7 +67,7 @@ static inline u64 put_unaligned64(u64 t, void *p)
 }
 #else
 #define get_unaligned64(x) get_unaligned(x)
-#define put_unaligned64(x) put_unaligned(x)
+#define put_unaligned64(x,p) put_unaligned(x,p)
 #endif
 
 #define vmalloc(x) malloc(x)
