@@ -650,7 +650,17 @@ bool snappy_uncompressed_length(const char *start, size_t n, size_t * result)
 }
 EXPORT_SYMBOL(snappy_uncompressed_length);
 
-#define kblock_log 15
+/*
+ * The size of a compression block. Note that many parts of the compression
+ * code assumes that kBlockSize <= 65536; in particular, the hash table
+ * can only store 16-bit offsets, and EmitCopy() also assumes the offset
+ * is 65535 bytes or less. Note also that if you change this, it will
+ * affect the framing format
+ * Note that there might be older data around that is compressed with larger
+ * block sizes, so the decompression code should not rely on the
+ * non-existence of long backreferences.
+ */
+#define kblock_log 16
 #define kblock_size (1 << kblock_log)
 
 /* 
