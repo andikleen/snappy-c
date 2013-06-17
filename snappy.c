@@ -3,7 +3,7 @@
  * This is a very fast compressor with comparable compression to lzo.
  * Works best on 64bit little-endian, but should be good on others too.
  * Ported by Andi Kleen.
- * Based on snappy 1.0.3 plus some selected changes from SVN.
+ * Uptodate with snappy 1.1.0
  */
 
 /*
