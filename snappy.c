@@ -370,7 +370,7 @@ static inline bool writer_check_length(struct writer *w)
  * Note that this does not match the semantics of either memcpy()
  * or memmove().
  */
-static inline void incremental_copy(const char *src, char *op, int len)
+static inline void incremental_copy(const char *src, char *op, ssize_t len)
 {
 	DCHECK_GT(len, 0);
 	do {
@@ -414,7 +414,7 @@ static inline void incremental_copy(const char *src, char *op, int len)
 #define kmax_increment_copy_overflow  10
 
 static inline void incremental_copy_fast_path(const char *src, char *op,
-					      int len)
+					      ssize_t len)
 {
 	while (op - src < 8) {
 		UnalignedCopy64(src, op);
