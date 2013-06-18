@@ -73,7 +73,7 @@
  * This can be more efficient than UNALIGNED_LOAD64 + UNALIGNED_STORE64
  * on some platforms, in particular ARM.
  */
-static inline void UnalignedCopy64(const void *src, void *dst)
+static inline void unaligned_copy64(const void *src, void *dst)
 {
 	if (sizeof(void *) == 8) {
 		UNALIGNED_STORE64(dst, UNALIGNED_LOAD64(src));
@@ -417,12 +417,12 @@ static inline void incremental_copy_fast_path(const char *src, char *op,
 					      ssize_t len)
 {
 	while (op - src < 8) {
-		UnalignedCopy64(src, op);
+		unaligned_copy64(src, op);
 		len -= op - src;
 		op += op - src;
 	}
 	while (len > 0) {
-		UnalignedCopy64(src, op);
+		unaligned_copy64(src, op);
 		src += 8;
 		op += 8;
 		len -= 8;
@@ -441,8 +441,8 @@ static inline bool writer_append_from_self(struct writer *w, u32 offset,
 	if (len <= 16 && offset >= 8 && space_left >= 16) {
 		/* Fast path, used for the majority (70-80%) of dynamic
 		 * invocations. */
-		UnalignedCopy64(op - offset, op);
-		UnalignedCopy64(op - offset + 8, op + 8);
+		unaligned_copy64(op - offset, op);
+		unaligned_copy64(op - offset + 8, op + 8);
 	} else {
 		if (space_left >= len + kmax_increment_copy_overflow) {
 			incremental_copy_fast_path(op - offset, op, len);
@@ -477,8 +477,8 @@ static inline bool writer_try_fast_append(struct writer *w, const char *ip,
 	const int space_left = w->op_limit - op;
 	if (len <= 16 && available_bytes >= 16 && space_left >= 16) {
 		/* Fast path, used for the majority (~95%) of invocations */
-		UnalignedCopy64(ip, op);
-		UnalignedCopy64(ip + 8, op + 8);
+		unaligned_copy64(ip, op);
+		unaligned_copy64(ip + 8, op + 8);
 		w->op = op + len;
 		return true;
 	}
@@ -561,8 +561,8 @@ static inline char *emit_literal(char *op,
  *     MaxCompressedLength).
  */
 		if (allow_fast_path && len <= 16) {
-			UnalignedCopy64(literal, op);
-			UnalignedCopy64(literal + 8, op + 8);
+			unaligned_copy64(literal, op);
+			unaligned_copy64(literal + 8, op + 8);
 			return op + len;
 		}
 	} else {
