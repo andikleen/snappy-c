@@ -54,6 +54,21 @@ void test_read(char *buf, int len)
 		asm volatile("" :: "r" (buf[i]) : "memory");
 }
 
+void print_mismatch(char *a, char *b, int size)
+{
+	int j;
+	int printed = 0;
+	for (j = 0; j < size; j++)
+		if (a[j] != b[j]) {
+			printf("%d: %x vs %x\n",
+			       j, 
+			       ((unsigned char *)a)[j],
+			       ((unsigned char *)b)[j]);
+			if (printed++ > 10)
+				break;
+		}
+}
+
 int main(int ac, char **av)
 {
 	struct snappy_env env;
@@ -80,6 +95,7 @@ int main(int ac, char **av)
 			int iv = 0;
 			size_t size = st_size;
 			size_t offset = 0;
+			int err;
 
 			unsigned rnd_seq_start = rnd_seq;
 
@@ -126,40 +142,52 @@ int main(int ac, char **av)
 			assert (sum_iov(out_iov, ov) == 
 				snappy_max_compressed_length(st_size));
 
+			size_t outlen_linear;
+			char *out_linear = malloc(snappy_max_compressed_length(st_size));
+			err = snappy_compress(&env, map, st_size, out_linear, &outlen_linear);
+			if (err < 0)
+				printf("linear compression of %s failed: %s\n", *av, strerror(-err));
+
 			size_t outlen;
 		
-			int err = snappy_compress_iov(&env, in_iov, iv, st_size, 
+			err = snappy_compress_iov(&env, in_iov, iv, st_size, 
 						      out_iov, &ov, &outlen);
 			if (err < 0) 
-				printf("compression of %s failed: %d\n", *av, err);
+				printf("compression of %s failed: %s\n", *av, strerror(-err));
 
+			assert(outlen == outlen_linear);
 			assert(outlen == sum_iov(out_iov, ov));
+
+			int w;
+			offset = 0;
+			for (w = 0; w < ov; w++) {
+				if (memcmp(out_iov[w].iov_base, out_linear + offset, out_iov[w].iov_len)) {
+					printf("compressed sg %d does not match\n", w);
+					print_mismatch(out_iov[w].iov_base, out_linear + offset, 
+							out_iov[w].iov_len);
+					break;
+				}
+				offset += out_iov[w].iov_len;
+			}
 
 			char *obuf = malloc(st_size);
 
 			err = snappy_uncompress_iov(out_iov, ov, outlen, obuf);
 			if (err < 0)
-				printf("uncompression of %s failed: %d\n", *av, err);
+				printf("uncompression of %s failed: %s\n", *av, strerror(-err));
 		
 			if (memcmp(obuf, map, st_size)) {
 				printf("comparison of %s failed, olen %lu, orig %lu, rnd_seq %d\n", *av,
 				       outlen, st_size, rnd_seq_start);
-				int j;
-				for (j = 0; j < st_size; j++)
-					if (obuf[j] != map[j]) {
-						printf("%d: %x vs %x\n",
-						       j, 
-						       ((unsigned char *)obuf)[j],
-						       ((unsigned char *)map)[j]);
-					}
+				print_mismatch(obuf, map, st_size);
 			}
 			
-			int w;
 			for (w = 0; w < iv; w++) 
 				free(in_iov[w].iov_base);
 			for (w = 0; w < ov; w++)
 				free(out_iov[w].iov_base);
 			free(obuf);
+			free(out_linear);
 		}
 
 		unmap_file(map, st_size);
