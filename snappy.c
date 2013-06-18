@@ -1289,7 +1289,9 @@ static int internal_uncompress(struct source *r,
 	decompress_all_tags(&decompressor, writer);
 
 	exit_snappy_decompressor(&decompressor);
-	return (decompressor.eof && writer_check_length(writer)) ? 0 : -EIO;
+	if (decompressor.eof && writer_check_length(writer))
+		return 0;
+	return -EIO;
 }
 
 static inline int compress(struct snappy_env *env, struct source *reader,
