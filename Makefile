@@ -64,4 +64,5 @@ sgverify: sgverify.o map.o snappy.o util.o
 FTRACER := ../ftracer/ftracer.o
 
 ftracer:
-	make CFLAGS='-pg -mfentry -DSG=1 -g' LDFLAGS='-rdynamic ${FTRACER} -ldl' all
+	make clean
+	make CFLAGS='-Dstatic= -pg -mfentry -DSG=1 -g' LDFLAGS='-rdynamic ${FTRACER} -ldl' all
