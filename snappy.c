@@ -1544,6 +1544,11 @@ int snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 EXPORT_SYMBOL(snappy_uncompress);
 #endif
 
+static inline void clear_env(struct snappy_env *env)
+{
+    memset(env, 0, sizeof(*env));
+}
+
 #ifdef SG
 /**
  * snappy_init_env_sg - Allocate snappy compression environment
@@ -1557,9 +1562,9 @@ EXPORT_SYMBOL(snappy_uncompress);
  */
 int snappy_init_env_sg(struct snappy_env *env, bool sg)
 {
-	env->hash_table = vmalloc(sizeof(u16) * kmax_hash_table_size);
-	if (!env->hash_table)
+	if (snappy_init_env(env) < 0)
 		goto error;
+
 	if (sg) {
 		env->scratch = vmalloc(kblock_size);
 		if (!env->scratch)
@@ -1588,6 +1593,7 @@ EXPORT_SYMBOL(snappy_init_env_sg);
  */
 int snappy_init_env(struct snappy_env *env)
 {
+    clear_env(env);
 	env->hash_table = vmalloc(sizeof(u16) * kmax_hash_table_size);
 	if (!env->hash_table)
 		return -ENOMEM;
@@ -1608,6 +1614,6 @@ void snappy_free_env(struct snappy_env *env)
 	vfree(env->scratch);
 	vfree(env->scratch_output);
 #endif
-	memset(env, 0, sizeof(struct snappy_env));
+	clear_env(env);
 }
 EXPORT_SYMBOL(snappy_free_env);
