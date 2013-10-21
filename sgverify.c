@@ -177,7 +177,7 @@ int main(int ac, char **av)
 				printf("uncompression of %s failed: %s\n", *av, strerror(-err));
 		
 			if (memcmp(obuf, map, st_size)) {
-				printf("comparison of %s failed, olen %lu, orig %lu, rnd_seq %d\n", *av,
+				printf("comparison of %s failed, olen %zu, orig %zu, rnd_seq %d\n", *av,
 				       outlen, st_size, rnd_seq_start);
 				print_mismatch(obuf, map, st_size);
 			}
