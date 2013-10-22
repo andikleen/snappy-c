@@ -156,7 +156,6 @@ int main(int ac, char **av)
 				printf("compression of %s failed: %s\n", *av, strerror(-err));
 
 			assert(outlen == outlen_linear);
-			assert(outlen == sum_iov(out_iov, ov));
 
 			int w;
 			offset = 0;
