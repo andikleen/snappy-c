@@ -221,6 +221,11 @@ static inline char *varint_encode32(char *sptr, u32 v)
 
 #ifdef SG
 
+static inline void *n_bytes_after_addr(void *addr, size_t n_bytes)
+{
+    return (void *) ((char *)addr + n_bytes);
+}
+
 struct source {
 	struct iovec *iov;
 	int iovlen;
@@ -241,7 +246,7 @@ static inline const char *peek(struct source *s, size_t *len)
 		struct iovec *iv = &s->iov[s->curvec];
 		if (s->curoff < iv->iov_len) { 
 			*len = iv->iov_len - s->curoff;
-			return iv->iov_base + s->curoff;
+			return n_bytes_after_addr(iv->iov_base, s->curoff);
 		}
 	}
 	*len = 0;
@@ -270,7 +275,7 @@ struct sink {
 static inline void append(struct sink *s, const char *data, size_t n)
 {
 	struct iovec *iov = &s->iov[s->curvec];
-	char *dst = iov->iov_base + s->curoff;
+	char *dst = n_bytes_after_addr(iov->iov_base, s->curoff);
 	size_t nlen = min_t(size_t, iov->iov_len - s->curoff, n);
 	if (data != dst)
 		memcpy(dst, data, nlen);
@@ -291,7 +296,7 @@ static inline void *sink_peek(struct sink *s, size_t n)
 {
 	struct iovec *iov = &s->iov[s->curvec];
 	if (s->curvec < iov->iov_len && iov->iov_len - s->curoff >= n)
-		return iov->iov_base + s->curoff;
+		return n_bytes_after_addr(iov->iov_base, s->curoff);
 	return NULL;
 }
 
