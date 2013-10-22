@@ -221,6 +221,11 @@ static inline char *varint_encode32(char *sptr, u32 v)
 
 #ifdef SG
 
+static inline void *n_bytes_after_addr(void *addr, size_t n_bytes)
+{
+    return (void *) ((char *)addr + n_bytes);
+}
+
 struct source {
 	struct iovec *iov;
 	int iovlen;
@@ -241,7 +246,7 @@ static inline const char *peek(struct source *s, size_t *len)
 		struct iovec *iv = &s->iov[s->curvec];
 		if (s->curoff < iv->iov_len) { 
 			*len = iv->iov_len - s->curoff;
-			return iv->iov_base + s->curoff;
+			return n_bytes_after_addr(iv->iov_base, s->curoff);
 		}
 	}
 	*len = 0;
@@ -270,7 +275,7 @@ struct sink {
 static inline void append(struct sink *s, const char *data, size_t n)
 {
 	struct iovec *iov = &s->iov[s->curvec];
-	char *dst = iov->iov_base + s->curoff;
+	char *dst = n_bytes_after_addr(iov->iov_base, s->curoff);
 	size_t nlen = min_t(size_t, iov->iov_len - s->curoff, n);
 	if (data != dst)
 		memcpy(dst, data, nlen);
@@ -291,7 +296,7 @@ static inline void *sink_peek(struct sink *s, size_t n)
 {
 	struct iovec *iov = &s->iov[s->curvec];
 	if (s->curvec < iov->iov_len && iov->iov_len - s->curoff >= n)
-		return iov->iov_base + s->curoff;
+		return n_bytes_after_addr(iov->iov_base, s->curoff);
 	return NULL;
 }
 
@@ -1539,6 +1544,11 @@ int snappy_uncompress(const char *compressed, size_t n, char *uncompressed)
 EXPORT_SYMBOL(snappy_uncompress);
 #endif
 
+static inline void clear_env(struct snappy_env *env)
+{
+    memset(env, 0, sizeof(*env));
+}
+
 #ifdef SG
 /**
  * snappy_init_env_sg - Allocate snappy compression environment
@@ -1552,9 +1562,9 @@ EXPORT_SYMBOL(snappy_uncompress);
  */
 int snappy_init_env_sg(struct snappy_env *env, bool sg)
 {
-	env->hash_table = vmalloc(sizeof(u16) * kmax_hash_table_size);
-	if (!env->hash_table)
+	if (snappy_init_env(env) < 0)
 		goto error;
+
 	if (sg) {
 		env->scratch = vmalloc(kblock_size);
 		if (!env->scratch)
@@ -1583,6 +1593,7 @@ EXPORT_SYMBOL(snappy_init_env_sg);
  */
 int snappy_init_env(struct snappy_env *env)
 {
+    clear_env(env);
 	env->hash_table = vmalloc(sizeof(u16) * kmax_hash_table_size);
 	if (!env->hash_table)
 		return -ENOMEM;
@@ -1603,6 +1614,6 @@ void snappy_free_env(struct snappy_env *env)
 	vfree(env->scratch);
 	vfree(env->scratch_output);
 #endif
-	memset(env, 0, sizeof(struct snappy_env));
+	clear_env(env);
 }
 EXPORT_SYMBOL(snappy_free_env);
