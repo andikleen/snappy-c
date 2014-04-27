@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include "snappy.h"
 #include <stdio.h>
-#include <sys/fcntl.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
 #include "util.h"

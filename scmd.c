@@ -1,5 +1,5 @@
 /* Simple command line tool for snappy */
-#include <sys/fcntl.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <unistd.h>

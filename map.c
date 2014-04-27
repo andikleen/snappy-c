@@ -1,6 +1,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <sys/fcntl.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include "map.h"

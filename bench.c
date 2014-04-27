@@ -1,5 +1,5 @@
 #define _GNU_SOURCE 1
-#include <sys/fcntl.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
