@@ -1,4 +1,4 @@
-CFLAGS := -Wall -g -O2 -DNDEBUG=1  -DSG=1
+CFLAGS ?= -Wall -g -O2 -DNDEBUG=1  -DSG=1
 # Remove -DSG=1 if you don't need scather-gather support
 # NDEBUG=1 is recommended for production
 
