@@ -9,9 +9,14 @@
 
 int main(int ac, char **av)
 {
-	int failed = 0;
+	int failed = 0, verbose = 0;
 	struct snappy_env env;
 	snappy_init_env(&env);
+
+	if (av[1] && !strcmp(av[1], "-v")) {
+		verbose++;
+		av++;
+	}
 
 	while (*++av) { 
 		size_t size;
@@ -49,6 +54,9 @@ int main(int ac, char **av)
 				printf("final comparision of %s failed at %d of %lu\n", 
 				       *av, o, (unsigned long)size);
 			}
+		} else {
+			if (verbose)
+				printf("%s OK!\n", *av);
 		}
 
 	next:

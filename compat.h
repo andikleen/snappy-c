@@ -26,6 +26,10 @@
 #include <limits.h>
 #include <sys/uio.h>
 
+#ifdef __ANDROID__
+#define le32toh letoh32
+#endif
+
 #if defined(__arm__) && \
 	!defined(__ARM_ARCH_4__) &&		\
 	!defined(__ARM_ARCH_4T__) &&		\
