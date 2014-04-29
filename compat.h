@@ -14,7 +14,7 @@
 #endif
 
 
-#else
+#elif !defined(__WIN32__)
 #  include <endian.h>
 #endif
 
@@ -24,10 +24,19 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <limits.h>
+#ifndef __WIN32__
 #include <sys/uio.h>
+#endif
 
 #ifdef __ANDROID__
 #define le32toh letoh32
+#endif
+
+#if defined(__WIN32__) && defined(SG)
+struct iovec {
+	void *iov_base;	/* Pointer to data.  */
+	size_t iov_len;	/* Length of data.  */
+};
 #endif
 
 #define get_unaligned_memcpy(x) ({ \
@@ -112,14 +121,12 @@ typedef unsigned long long u64;
 #define max_t(t,x,y) ((x) > (y) ? (x) : (y))
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-
 #define __LITTLE_ENDIAN__ 1
+#endif
 
-#ifdef __LSB_VERSION__
+#if __LITTLE_ENDIAN__ == 1 && (defined(__LSB_VERSION__) || defined(__WIN32__))
 #define htole16(x) (x)
 #define le32toh(x) (x)
 #endif
-
-#endif /* __BYTE_ORDER == __LITTLE_ENDIAN */
 
 #define BITS_PER_LONG (__SIZEOF_LONG__ * 8)
