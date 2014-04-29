@@ -112,7 +112,14 @@ typedef unsigned long long u64;
 #define max_t(t,x,y) ((x) > (y) ? (x) : (y))
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
+
 #define __LITTLE_ENDIAN__ 1
+
+#ifdef __LSB_VERSION__
+#define htole16(x) (x)
+#define le32toh(x) (x)
 #endif
+
+#endif /* __BYTE_ORDER == __LITTLE_ENDIAN */
 
 #define BITS_PER_LONG (__SIZEOF_LONG__ * 8)
