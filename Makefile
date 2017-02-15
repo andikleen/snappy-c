@@ -1,4 +1,4 @@
-CFLAGS ?= -Wall -g -O2 -DNDEBUG=1  -DSG=1
+CFLAGS ?= -Wall -g -O2 -DNDEBUG=1  -DSG=1 -fPIC
 # Remove -DSG=1 if you don't need scather-gather support
 # NDEBUG=1 is recommended for production
 
@@ -9,14 +9,14 @@ CFLAGS ?= -Wall -g -O2 -DNDEBUG=1  -DSG=1
 # download it somewhere and point to it
 KDOC := /usr/src/linux/scripts/kernel-doc
 
-all: scmd verify sgverify
+all: scmd verify sgverify libsnappy.so
 
 snappy.o: snappy.c compat.h snappy-int.h
 
 scmd: scmd.o snappy.o map.o util.o
 
 CLEAN := scmd.o snappy.o scmd bench bench.o fuzzer.o fuzzer map.o verify.o \
-	 verify util.o sgverify sgverify.o snappy.html snappy.man
+	 verify util.o sgverify sgverify.o snappy.html snappy.man libsnappy.so
 
 clean: 
 	rm -f ${CLEAN}
@@ -66,3 +66,6 @@ FTRACER := ../ftracer/ftracer.o
 ftracer:
 	make clean
 	make CFLAGS='-Dstatic= -pg -mfentry -DSG=1 -g' LDFLAGS='-rdynamic ${FTRACER} -ldl' all
+
+libsnappy.so: snappy.o
+	$(CC) $(LDFLAGS) -shared -o $@ $^
