@@ -9,14 +9,14 @@ CFLAGS ?= -Wall -g -O2 -DNDEBUG=1  -DSG=1 -fPIC
 # download it somewhere and point to it
 KDOC := /usr/src/linux/scripts/kernel-doc
 
-all: scmd verify sgverify libsnappy.so
+all: scmd verify sgverify libsnappyc.so.1
 
 snappy.o: snappy.c compat.h snappy-int.h
 
 scmd: scmd.o snappy.o map.o util.o
 
 CLEAN := scmd.o snappy.o scmd bench bench.o fuzzer.o fuzzer map.o verify.o \
-	 verify util.o sgverify sgverify.o snappy.html snappy.man libsnappy.so
+	 verify util.o sgverify sgverify.o snappy.html snappy.man libsnappyc.so.1
 
 clean: 
 	rm -f ${CLEAN}
@@ -67,5 +67,5 @@ ftracer:
 	make clean
 	make CFLAGS='-Dstatic= -pg -mfentry -DSG=1 -g' LDFLAGS='-rdynamic ${FTRACER} -ldl' all
 
-libsnappy.so: snappy.o
+libsnappyc.so.1: snappy.o
 	$(CC) $(LDFLAGS) -shared -o $@ $^
