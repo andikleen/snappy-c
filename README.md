@@ -1,4 +1,4 @@
-![snappy-c](https://halobates.de/snappy-c.png)
+![snappy-c](http://halobates.de/snappy-c.png)
 
 This is a C port of the google snappy compressor (http://code.google.com/p/snappy/)
 The compressor is very fast with reasonable compression ratio.
