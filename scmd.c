@@ -115,12 +115,17 @@ int main(int ac, char **av)
 	
 	out = xmalloc(outlen);
 
+	struct snappy_env env;
 	if (mode == compress) {
-		struct snappy_env env;
 		snappy_init_env(&env);
 		err = snappy_compress(&env, map, size, out, &outlen);
 	} else
 		err = snappy_uncompress(map, size, out);
+
+	if (mode == compress) {
+		snappy_free_env(&env);
+	}
+	unmap_file(map, size);
 
 	if (err) {
 		fprintf(stderr, "Cannot process %s: %s\n", av[optind], 
@@ -148,6 +153,9 @@ int main(int ac, char **av)
 			strerror(errno));
 		err = 1;
 	}
-
+	
+	free(file);
+	free(out);
+	
 	return err;
 }
