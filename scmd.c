@@ -153,8 +153,9 @@ int main(int ac, char **av)
 			strerror(errno));
 		err = 1;
 	}
-	
-	free(file);
+
+	if (!to_stdout)
+		free(file);
 	free(out);
 	
 	return err;
